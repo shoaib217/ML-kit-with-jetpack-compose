@@ -1,49 +1,25 @@
 package com.example.mlkitwithjetpackcompose
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
-import android.util.Log
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.registerForActivityResult
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
+import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
 import com.example.mlkitwithjetpackcompose.ui.theme.MLkitWithJetpackComposeTheme
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 
 class MainActivity : ComponentActivity() {
 
@@ -52,6 +28,7 @@ class MainActivity : ComponentActivity() {
 
         }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         var permissions =
@@ -80,13 +57,27 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MLkitWithJetpackComposeTheme {
-                // A surface container using the 'background' color from the theme
-                Surface(
+                Scaffold(topBar = {
+                    TopAppBar(title = { Text(text = "ML Kit Demo") })
+                }, containerColor = MaterialTheme.colorScheme.background) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(it),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DocumentScannerScreen(this@MainActivity)
+//                        TextRecognitionScreen()
+
+                    }
+                }
+                /*Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    TextRecognitionScreen()
-                }
+//                    TextRecognitionScreen()
+                    DocumentScannerScreen(this)
+                }*/
             }
         }
     }

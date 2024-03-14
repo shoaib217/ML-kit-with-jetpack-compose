@@ -69,5 +69,6 @@ dependencies {
     implementation(libs.text.recognition.devanagari)
     implementation(libs.play.services.mlkit.text.recognition.devanagari)
     implementation(libs.coil.compose)
+    implementation(libs.play.services.mlkit.document.scanner)
 
 }
