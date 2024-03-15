@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -75,25 +74,21 @@ class MainActivity : ComponentActivity() {
                 Scaffold(topBar = {
                     TopAppBar(title = { Text(text = "ML Kit Demo") })
                 }, containerColor = MaterialTheme.colorScheme.background) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(it),
-                        contentAlignment = Alignment.Center
+                    NavHost(
+                        navController = navController,
+                        startDestination = MAIN_SCREEN,
+                        modifier = Modifier.fillMaxSize().padding(it)
                     ) {
-                        NavHost(navController = navController, startDestination = MAIN_SCREEN) {
-                            composable(MAIN_SCREEN) {
-                                MainScreen(navController)
-                            }
-                            composable(TEXT_RECOGNITION_SCREEN) {
-                                TextRecognitionScreen()
-
-                            }
-                            composable(DOCUMENT_SCANNER_SCREEN) {
-                                DocumentScannerScreen(mainActivity = this@MainActivity)
-                            }
+                        composable(MAIN_SCREEN) {
+                            MainScreen(navController)
                         }
+                        composable(TEXT_RECOGNITION_SCREEN) {
+                            TextRecognitionScreen()
 
+                        }
+                        composable(DOCUMENT_SCANNER_SCREEN) {
+                            DocumentScannerScreen(mainActivity = this@MainActivity)
+                        }
                     }
                 }
             }
@@ -104,7 +99,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(navController: NavHostController) {
     Column(
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.SpaceEvenly,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         FilledTonalButton(onClick = { navController.navigate(MainActivity.TEXT_RECOGNITION_SCREEN) }) {
