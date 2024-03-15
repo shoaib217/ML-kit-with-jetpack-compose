@@ -12,6 +12,8 @@ composeBom = "2024.02.02"
 playServicesMlkitDocumentScanner = "16.0.0-beta1"
 playServicesMlkitTextRecognitionDevanagari = "16.0.0"
 textRecognitionDevanagari = "16.0.0"
+navVersion = "2.7.7"
+
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -32,6 +34,8 @@ androidx-material3 = { group = "androidx.compose.material3", name = "material3" 
 play-services-mlkit-document-scanner = { module = "com.google.android.gms:play-services-mlkit-document-scanner", version.ref = "playServicesMlkitDocumentScanner" }
 play-services-mlkit-text-recognition-devanagari = { module = "com.google.android.gms:play-services-mlkit-text-recognition-devanagari", version.ref = "playServicesMlkitTextRecognitionDevanagari" }
 text-recognition-devanagari = { module = "com.google.mlkit:text-recognition-devanagari", version.ref = "textRecognitionDevanagari" }
+navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navVersion" }
+
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
