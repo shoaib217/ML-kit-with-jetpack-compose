@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MLkit with JetpackCompose"
 include(":app")
- 
+include(":openCV")

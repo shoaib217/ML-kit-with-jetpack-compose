@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.play.services.mlkit.document.scanner)
     implementation(libs.navigation.compose)
-
+    implementation(project(":openCV"))
+    implementation(libs.tess.two)
 
 }

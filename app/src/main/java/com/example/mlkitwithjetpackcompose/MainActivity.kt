@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
 import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
 import com.example.mlkitwithjetpackcompose.ui.theme.MLkitWithJetpackComposeTheme
+import org.opencv.android.OpenCVLoader
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -44,6 +46,12 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (OpenCVLoader.initLocal()) {
+            Log.d("OpenCV", "OpenCV initialized successfully!")
+        } else {
+            Log.e("OpenCV", "Failed to initialize OpenCV.")
+        }
         var permissions =
             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.CAMERA)
 
