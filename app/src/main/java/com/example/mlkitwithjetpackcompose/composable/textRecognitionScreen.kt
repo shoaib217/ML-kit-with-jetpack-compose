@@ -30,7 +30,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -143,13 +142,12 @@ fun TextRecognitionScreen() {
                       /*  val inputMat = bitmapToMat(bitmap)
                         val scaleFactor = 0.5 // Reduce to 50% of original size
                         val resizedImage = resizeImage(inputMat, scaleFactor)*/
-                        showProgressDialog = false
-                        imageUri = imageList
+                       /* showProgressDialog = false
+                        imageUri = imageList*/
 
-/*
                         processImageInBackground(bitmap, onSuccess = {
                             showProgressDialog = false
-                            println("onsucess - ${it.height}")
+                            println("onsuccess - ${it.height}")
                             imageList.add(it)
                             imageUri = imageList
                         },
@@ -158,7 +156,6 @@ fun TextRecognitionScreen() {
                                 it.printStackTrace()
                                 Toast.makeText(context,it.message, Toast.LENGTH_SHORT).show()
                             })
-*/
                     }
 
                     ImageProcess.FORM_16_CHECK -> {
@@ -265,12 +262,12 @@ fun TextRecognitionScreen() {
                     }
 
                 }
-                if (imageUri != null && imageProcess == ImageProcess.REMOVE_NOISE){
+                /*if (imageUri != null && imageProcess == ImageProcess.REMOVE_NOISE){
                     Slider(
                         value = noiseLevel,
                         onValueChange = { newValue ->
                             noiseLevel = newValue
-                            /*val imageList  = arrayListOf<Bitmap>(imageUri!!.first())
+                            *//*val imageList  = arrayListOf<Bitmap>(imageUri!!.first())
                             showProgressDialog=true
                             processImageInBackground(imageUri!!.first(), onSuccess = {
                                 showProgressDialog = false
@@ -282,7 +279,7 @@ fun TextRecognitionScreen() {
                                     showProgressDialog = false
                                     it.printStackTrace()
                                     Toast.makeText(context,it.message, Toast.LENGTH_SHORT).show()
-                                })*/
+                                })*//*
                         },
                         onValueChangeFinished = {
                             val imageList  = arrayListOf<Bitmap>(imageUri!!.first())
@@ -304,7 +301,7 @@ fun TextRecognitionScreen() {
                         steps = 9,
                         modifier = Modifier.padding(16.dp)
                     )
-                }
+                }*/
                 if (imageUri != null){
                     /*AsyncImage(
                         model = imageUri,
@@ -889,42 +886,61 @@ fun processImageInBackground(
 fun removeNoiseAndEnhanceContrast(originalBitmap: Bitmap,noiseValue: Float = 5f): Bitmap {
     Log.d("TAG", "removeNoiseAndEnhanceContrast: Starting...")
 
-    var image: Mat = Mat()
-    var gray: Mat = Mat()
-    var mean: MatOfDouble = MatOfDouble()
-    var stdDev: MatOfDouble= MatOfDouble()
-    var denoised: Mat = Mat()
-    var contrastEnhanced: Mat = Mat()
+    var image = Mat()
+    var gray = Mat()
+    var denoised = Mat()
+    var contrastEnhanced = Mat()
 
     try {
         image = Mat()
         Utils.bitmapToMat(originalBitmap, image)
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Bitmap converted to Mat successfully.")
 
-        val scaleFactor = 0.7 // Reduce to 50% of original size
+        val scaleFactor = 0.5 // Reduce to 50% of original size
         val resizedImage = resizeImage(image, scaleFactor)
 
         gray = Mat()
         Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Image converted to grayscale.")
 
-        mean = MatOfDouble()
-        stdDev = MatOfDouble()
-        Core.meanStdDev(gray, mean, stdDev)
-        val noiseLevel = stdDev.get(0, 0)[0] // Standard deviation as noise level
+        // Step 1: Detect Text Regions (Handling Light Gray Text)
+        val textMask = Mat()
+        Imgproc.adaptiveThreshold(
+            gray, textMask, 255.0, Imgproc.ADAPTIVE_THRESH_MEAN_C,
+            Imgproc.THRESH_BINARY_INV, 25, 10.0 // Lower 'C' value to detect light gray text
+        )
+
+        // Step 2: Enhance Edges (Ensure Light Gray Text is Not Lost)
+        val edges = Mat()
+        Imgproc.Canny(gray, edges, 50.0, 150.0)
+        Core.bitwise_or(textMask, edges, textMask) // Merge edges with text mask
+
+        // Step 3: Expand Text Mask Using Morphology
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+        Imgproc.dilate(textMask, textMask, kernel)
+
+        // Step 4: Extract Background (Invert Mask)
+        val backgroundMask = Mat()
+        Core.bitwise_not(textMask, backgroundMask)
+
+        // Step 5: Compute Noise Level in Background Only
+        val mean = MatOfDouble()
+        val stdDev = MatOfDouble()
+        Core.meanStdDev(gray, mean, stdDev, backgroundMask)
+        val noiseLevel = stdDev.get(0, 0)[0]
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Noise level calculated: $noiseLevel")
 
+
         denoised = Mat()
-        if (noiseLevel > 30) { // Adjust this threshold based on testing
-            Log.d("TAG", "removeNoiseAndEnhanceContrast: Applying fastNlMeansDenoisingColored")
-            Photo.fastNlMeansDenoisingColored(resizedImage, denoised, noiseValue, noiseValue, 7, 21)
-        } else {
-            Log.d("TAG", "removeNoiseAndEnhanceContrast: Applying fastNlMeansDenoising")
-            Imgproc.bilateralFilter(gray, denoised, 9, 75.0, 75.0)
-
-//            Imgproc.GaussianBlur(gray, denoised, Size(5.0, 5.0), 0.0)
-
+        if (noiseLevel < 40) {
+            Log.d("TAG", "Background noise is low ($noiseLevel), skipping processing.")
+            return originalBitmap
         }
+
+        Log.d("TAG", "removeNoiseAndEnhanceContrast: Applying fastNlMeansDenoisingColored")
+        Photo.fastNlMeansDenoisingColored(resizedImage, denoised, noiseValue, noiseValue, 7, 21)
+
+
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Denoising completed.")
 
         contrastEnhanced = Mat()
@@ -945,8 +961,6 @@ fun removeNoiseAndEnhanceContrast(originalBitmap: Bitmap,noiseValue: Float = 5f)
     } finally {
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Releasing resources...")
         gray.release()
-        mean.release()
-        stdDev.release()
         denoised.release()
         image.release()
         contrastEnhanced.release()
