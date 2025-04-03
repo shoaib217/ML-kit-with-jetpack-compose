@@ -41,7 +41,7 @@ fun DocumentScannerScreen(mainActivity: MainActivity) {
     var imageUri by remember {
         mutableStateOf<List<Uri>>((emptyList()))
     }
-    val options = GmsDocumentScannerOptions.Builder().setGalleryImportAllowed(false).setPageLimit(4)
+    val options = GmsDocumentScannerOptions.Builder().setGalleryImportAllowed(true).setPageLimit(4)
         .setResultFormats(RESULT_FORMAT_JPEG, RESULT_FORMAT_PDF).setScannerMode(SCANNER_MODE_FULL)
         .build()
     val scanner = GmsDocumentScanning.getClient(options)

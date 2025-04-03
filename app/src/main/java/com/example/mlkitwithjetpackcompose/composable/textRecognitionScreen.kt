@@ -2,16 +2,15 @@ package com.example.mlkitwithjetpackcompose.composable
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
+import com.example.mlkitwithjetpackcompose.BankStatementDateOCR
 import com.example.mlkitwithjetpackcompose.utility.createImageFile
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -78,7 +79,7 @@ import java.time.format.DateTimeParseException
 import java.time.format.ResolverStyle
 import java.util.Locale
 
-enum class ImageProcess{
+enum class ImageProcess {
     REMOVE_WATERMARK,
     REMOVE_NOISE,
     FORM_16_CHECK
@@ -105,18 +106,29 @@ fun TextRecognitionScreen() {
         context,
         "com.example.mlkitwithjetpackcompose" + ".provider", file
     )
+    val scope = rememberCoroutineScope()
+
 
     val pickPdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
         onResult = { result: ActivityResult ->
-            showProgressDialog = false
             if (result.resultCode == Activity.RESULT_OK) {
-//                imageUri = result.data?.data
                 result.data?.data?.let {
-                    readPdf(copyPdfFromUriToCache(context,it),context,recognizer, setPdf = {
-                        imageUri= it
-                    })
-
+                    scope.launch {
+                        BankStatementDateOCR.processPdf(
+                            context,
+                            it,
+                            recognizer,
+                            showProgressDialog = {
+                                showProgressDialog = it
+                            },
+                            setPdf = { bitmaps, extractedDates ->
+                                showProgressDialog = false
+                                extractedImageText = extractedDates
+                                imageUri = ArrayList(bitmaps)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -128,38 +140,43 @@ fun TextRecognitionScreen() {
 //            imageUri = arrayListOf()
             val imageList = arrayListOf<Bitmap>()
             if (uri != null) {
-                val bitmap = BitmapFactory.decodeFile(cacheImage(context,uri)?.path)
+                val bitmap = BitmapFactory.decodeFile(cacheImage(context, uri)?.path)
                 imageList?.add(bitmap)
-                when(imageProcess){
+                when (imageProcess) {
                     ImageProcess.REMOVE_WATERMARK -> {
                         val processBitmap = removeWatermark(bitmap)
                         showProgressDialog = false
                         imageUri?.add(processBitmap)
 
                     }
+
                     ImageProcess.REMOVE_NOISE -> {
                         //noise reduction
-                      /*  val inputMat = bitmapToMat(bitmap)
-                        val scaleFactor = 0.5 // Reduce to 50% of original size
-                        val resizedImage = resizeImage(inputMat, scaleFactor)*/
-                       /* showProgressDialog = false
-                        imageUri = imageList*/
+                        /*  val inputMat = bitmapToMat(bitmap)
+                          val scaleFactor = 0.5 // Reduce to 50% of original size
+                          val resizedImage = resizeImage(inputMat, scaleFactor)*/
+                        /* showProgressDialog = false
+                         imageUri = imageList*/
 
-                        processImageInBackground(bitmap, onSuccess = {
-                            showProgressDialog = false
-                            println("onsuccess - ${it.height}")
-                            imageList.add(it)
-                            imageUri = imageList
-                        },
+                        processImageInBackground(
+                            bitmap, onSuccess = {
+                                showProgressDialog = false
+                                println("onsuccess - ${it.height}")
+                                imageList.add(it)
+                                imageUri = imageList
+                            },
                             onError = {
                                 showProgressDialog = false
                                 it.printStackTrace()
-                                Toast.makeText(context,it.message, Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, it.message, Toast.LENGTH_SHORT).show()
                             })
                     }
 
                     ImageProcess.FORM_16_CHECK -> {
-                        processImage2(context,recognizer,bitmap)
+                        showProgressDialog = false
+                        val scaleBitmap = scaleBitmap(bitmap, 2.0f)
+                        imageUri = arrayListOf(scaleBitmap)
+                        processImage2(context, recognizer, scaleBitmap)
                     }
                 }
 
@@ -173,22 +190,21 @@ fun TextRecognitionScreen() {
         onResult = { uri ->
             imageUri = arrayListOf()
             uri?.let {
-                val bitmap = BitmapFactory.decodeFile(cacheImage(context,it)?.path)
+                val bitmap = BitmapFactory.decodeFile(cacheImage(context, it)?.path)
                 imageUri?.add(bitmap)
 //                val processBitmap = removeWatermark(bitmap)
 
                 //noise reduction
-               /* val inputMat = bitmapToMat(bitmap)
+                /* val inputMat = bitmapToMat(bitmap)
 
-                val denoisedMat = removeNoise(inputMat)
-                val outputBitmap = matToBitmap(denoisedMat)
-                imageUri?.add(outputBitmap)*/
+                 val denoisedMat = removeNoise(inputMat)
+                 val outputBitmap = matToBitmap(denoisedMat)
+                 imageUri?.add(outputBitmap)*/
 
-                processImage(context,recognizer,bitmap)
+                processImage(context, recognizer, bitmap)
             }
         }
     )
-
 
 
     val launcher = rememberLauncherForActivityResult(
@@ -236,15 +252,22 @@ fun TextRecognitionScreen() {
         })
 
 
-    LazyColumn (state = rememberLazyListState(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Top
+    LazyColumn(
+        state = rememberLazyListState(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
     ) {
-        item{
-            if (showProgressDialog){
+        item {
+            if (showProgressDialog) {
                 CircularProgressIndicator()
             } else {
                 if (extractedImageText.isNotEmpty()) {
-                    Column (modifier = Modifier.padding(8.dp)){
-                        Text(text = "Recognized Text : - ", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text(
+                            text = "Recognized Text : - ",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                         SelectionContainer {
                             Text(text = extractedImageText)
                         }
@@ -302,7 +325,7 @@ fun TextRecognitionScreen() {
                         modifier = Modifier.padding(16.dp)
                     )
                 }*/
-                if (imageUri != null){
+                if (imageUri != null) {
                     /*AsyncImage(
                         model = imageUri,
                         contentDescription = null,
@@ -315,11 +338,11 @@ fun TextRecognitionScreen() {
                 }
                 Button(onClick = {
                     showProgressDialog = true
-/*                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/pdf"
-                    }
-                    pickPdfLauncher.launch(intent)*/
+                    /*                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "application/pdf"
+                                        }
+                                        pickPdfLauncher.launch(intent)*/
                     imageProcess = ImageProcess.REMOVE_NOISE
                     singleImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }) {
@@ -327,12 +350,12 @@ fun TextRecognitionScreen() {
                 }
 
                 Button(onClick = {
-                    showProgressDialog =true
-/*                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/pdf"
-                    }
-                    pickPdfLauncher.launch(intent)*/
+                    showProgressDialog = true
+                    /*                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            type = "application/pdf"
+                                        }
+                                        pickPdfLauncher.launch(intent)*/
                     imageProcess = ImageProcess.REMOVE_WATERMARK
                     singleImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }) {
@@ -353,13 +376,24 @@ fun TextRecognitionScreen() {
                 }
 
 
+                Button(onClick = {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "application/pdf"
+                    }
+                    pickPdfLauncher.launch(intent)
+                }) {
+                    Text(text = "Pick Statement")
+                }
+
+
             }
 
         }
     }
 }
 
-fun cacheImage(context: Context,uri: Uri): File? {
+fun cacheImage(context: Context, uri: Uri): File? {
     val inputStream: InputStream? = try {
         context.contentResolver.openInputStream(uri)
     } catch (e: IOException) {
@@ -398,35 +432,6 @@ fun cacheImage(context: Context,uri: Uri): File? {
 
 }
 
-fun readPdf(pdf: File?,context: Context,recognizer: TextRecognizer,setPdf: (ArrayList<Bitmap>) -> Unit) {
-    try {
-        val bitmaps: ArrayList<Bitmap> = ArrayList()
-        val parcelFileDescriptor =
-            ParcelFileDescriptor.open(pdf, ParcelFileDescriptor.MODE_READ_ONLY)
-        val pdfRenderer = PdfRenderer(parcelFileDescriptor)
-        Log.d("TAG", "openPdfRenderer: pageCount ${pdfRenderer.pageCount} ")
-
-        if (pdfRenderer.getPageCount() > 0) {
-            for(i in 0 until pdfRenderer.pageCount){
-                val currentPage = pdfRenderer.openPage(i)
-                val bitmap = createBitmap(currentPage.width, currentPage.height)
-
-                currentPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                bitmaps.add(bitmap)
-                currentPage.close() // Close the current page
-            }
-        }
-
-        Log.d("TAG", "readPdf: bitmapSize -${bitmaps.size}")
-        setPdf(bitmaps)
-        bitmaps.forEach {
-            processImage2(context,recognizer,it)
-        }
-    } catch (e: IOException) {
-        e.printStackTrace()
-    }
-}
-
 fun processImage(context: Context, recognizer: TextRecognizer, pdfPage: Bitmap) {
 
     val formHeading = "FORM NO. 16"
@@ -444,51 +449,49 @@ fun processImage(context: Context, recognizer: TextRecognizer, pdfPage: Bitmap) 
     var citPresent = false
 
 
-    recognizer.process(InputImage.fromBitmap(pdfPage,0))
+    recognizer.process(InputImage.fromBitmap(pdfPage, 0))
         .addOnSuccessListener { visionText ->
             var listOfExtractedDate: ArrayList<RecognizedDate> = arrayListOf()
-            visionText.textBlocks.forEach { textBlock->
+            visionText.textBlocks.forEach { textBlock ->
                 textBlock.lines.forEach { line ->
-                        Log.d("TAG", "Text Recognition : - ${line.text}")
+                    Log.d("TAG", "Text Recognition : - ${line.text}")
 
-                    if (line.text.contains(formHeading,true)){
+                    if (line.text.contains(formHeading, true)) {
                         formHeadingPresent = true
                     }
 
-                    if (line.text.contains(certificateNumber,true)){
+                    if (line.text.contains(certificateNumber, true)) {
                         certificateNumberPresent = true
                     }
 
-                    if (line.text.contains(panKeyword,true)){
+                    if (line.text.contains(panKeyword, true)) {
                         panKeywordPresent = true
                     }
 
-                    if (line.text.contains(tanKeyword,true)){
+                    if (line.text.contains(tanKeyword, true)) {
                         tanKeywordPresent = true
                     }
 
-                    if (line.text.contains(assessmentYear,true)){
+                    if (line.text.contains(assessmentYear, true)) {
                         assessmentYearPresent = true
                     }
 
-                    if (line.text.contains(cit,true)){
+                    if (line.text.contains(cit, true)) {
                         citPresent = true
                     }
 
 
-
-
-                   /* if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        extractDatesFromStatement(line.text)?.let {
-                            listOfExtractedDate.add(RecognizedDate(
-                                it,
-                                formatDate(it),
-                                it.dayOfMonth,
-                                it.monthValue,
-                                it.year
-                            ))
-                        }
-                    }*/
+                    /* if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                         extractDatesFromStatement(line.text)?.let {
+                             listOfExtractedDate.add(RecognizedDate(
+                                 it,
+                                 formatDate(it),
+                                 it.dayOfMonth,
+                                 it.monthValue,
+                                 it.year
+                             ))
+                         }
+                     }*/
                     line.elements.forEach { element ->
 //                        Log.d("TAG", "Text Recognition : - ${element.text}")
                         /*if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -521,9 +524,9 @@ fun processImage(context: Context, recognizer: TextRecognizer, pdfPage: Bitmap) 
             }*/
 
             if (formHeadingPresent && certificateNumberPresent && panKeywordPresent && tanKeywordPresent && assessmentYearPresent && citPresent) {
-                Toast.makeText(context,"form validated", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "form validated", Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(context,"invalid form", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "invalid form", Toast.LENGTH_LONG).show()
             }
 
             println("listOfExtractedDate - $listOfExtractedDate")
@@ -547,7 +550,6 @@ fun processImage(context: Context, recognizer: TextRecognizer, pdfPage: Bitmap) 
 }
 
 
-
 fun processImage2(context: Context, recognizer: TextRecognizer, pdfPage: Bitmap) {
 
     val formHeading = "FORM NO. 16"
@@ -565,50 +567,51 @@ fun processImage2(context: Context, recognizer: TextRecognizer, pdfPage: Bitmap)
     var citPresent = false
 
 
-    recognizer.process(InputImage.fromBitmap(pdfPage,0))
+    recognizer.process(InputImage.fromBitmap(pdfPage, 0))
         .addOnSuccessListener { visionText ->
             var listOfExtractedDate: ArrayList<RecognizedDate> = arrayListOf()
-            visionText.textBlocks.forEach { textBlock->
-                Log.d("TAG", "Text Recognition1 : - ${textBlock.text}")
+            visionText.textBlocks.forEach { textBlock ->
+                Log.d("TAG", "Text Recognition1 : - ${textBlock.text.trim()}")
                 textBlock.lines.forEach { line ->
                     Log.d("TAG", "Text Recognition2 : - ${line.text}")
 
-                    if (line.text.contains(formHeading,true)){
+                    if (line.text.contains(formHeading, true)) {
                         formHeadingPresent = true
                     }
 
-                    if (line.text.contains(certificateNumber,true)){
+                    if (line.text.contains(certificateNumber, true)) {
                         certificateNumberPresent = true
                     }
 
-                    if (line.text.contains(panKeyword,true)){
+                    if (line.text.contains(panKeyword, true)) {
                         panKeywordPresent = true
                     }
 
-                    if (line.text.contains(tanKeyword,true)){
+                    if (line.text.contains(tanKeyword, true)) {
                         tanKeywordPresent = true
                     }
 
-                    if (line.text.contains(assessmentYear,true)){
+                    if (line.text.contains(assessmentYear, true)) {
                         assessmentYearPresent = true
                     }
 
-                    if (line.text.contains(cit,true)){
+                    if (line.text.contains(cit, true)) {
                         citPresent = true
                     }
                 }
             }
 
             if (formHeadingPresent && certificateNumberPresent && panKeywordPresent /*&& tanKeywordPresent && assessmentYearPresent && citPresent*/) {
-                Toast.makeText(context,"form validated", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "form validated", Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(context,"invalid form", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "invalid form", Toast.LENGTH_LONG).show()
             }
         }
         .addOnFailureListener {
             Log.d("TAG", "Exception: ${it.message}")
         }
 }
+
 
 @RequiresApi(Build.VERSION_CODES.O)
 fun extractDatesFromStatement(statement: String): LocalDate? {
@@ -630,21 +633,36 @@ fun extractDatesFromStatement(statement: String): LocalDate? {
         Regex("^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+(0?[1-9]|[12][0-9]|3[01]),\\s+\\d{4}\$")// MMM dd, yyyy
     )
     val dateFormats = listOf(
-            DateTimeFormatter.ofPattern("MMMM dd, yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART), // Added for "10 Dec 2021"
-    DateTimeFormatter.ofPattern("MMMM dd yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),// Added for "October 31 2022"
-    DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("yyyyMMdd", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("DD MMM YYYY", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("dd-MMM-yy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("ddMMMyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("MM/dd/yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("MM-dd-yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-    DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART)
+        DateTimeFormatter.ofPattern("MMMM dd, yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART), // Added for "10 Dec 2021"
+        DateTimeFormatter.ofPattern("MMMM dd yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),// Added for "October 31 2022"
+        DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("yyyyMMdd", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("DD MMM YYYY", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("dd-MMM-yy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("ddMMMyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("MM/dd/yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("MM-dd-yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART),
+        DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.SMART)
     )
 
     var parsedDate: LocalDate? = null
@@ -681,10 +699,6 @@ fun extractDatesFromStatement(statement: String): LocalDate? {
     return parsedDate
 }
 
-@RequiresApi(Build.VERSION_CODES.O)
-fun formatDate(date: LocalDate?): String? {
-    return date?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-}
 
 data class RecognizedDate(
     val localDate: LocalDate,
@@ -693,48 +707,17 @@ data class RecognizedDate(
     val month: Int,
     val year: Int,
 
-)
+    )
 
-fun copyPdfFromUriToCache(context: Context, uri: Uri): File? {
-    val inputStream: InputStream? = try {
-        context.contentResolver.openInputStream(uri)
-    } catch (e: IOException) {
-        Log.e("TAG", "Failed to open input stream for URI: $uri", e)
-        return null
-    }
 
-    val cacheFile: File = try {
-        File.createTempFile("temp_pdf_", ".pdf", context.cacheDir)
-    } catch (e: IOException) {
-        Log.e("TAG", "Failed to create temp file", e)
-        return null
-    }
-
-    val outputStream: FileOutputStream? = try {
-        FileOutputStream(cacheFile)
-    } catch (e: IOException) {
-        Log.e("TAG", "Failed to open output stream", e)
-        return null
-    }
-
-    try {
-        inputStream?.use { input ->
-            outputStream?.use { output ->
-                input.copyTo(output)
-            }
-        }
-    } catch (e: IOException) {
-        Log.e("TAG", "Failed to copy PDF from URI to cache", e)
-        return null
-    } finally {
-        inputStream?.close()
-        outputStream?.close()
-    }
-
-    return cacheFile
-}
-
-fun addTextWatermark(src: Bitmap, watermarkText: String, color: Int, alpha: Int, textSize: Float, underline: Boolean): Bitmap {
+fun addTextWatermark(
+    src: Bitmap,
+    watermarkText: String,
+    color: Int,
+    alpha: Int,
+    textSize: Float,
+    underline: Boolean,
+): Bitmap {
     val w = src.width
     val h = src.height
     val result = Bitmap.createBitmap(w, h, src.config)
@@ -746,7 +729,7 @@ fun addTextWatermark(src: Bitmap, watermarkText: String, color: Int, alpha: Int,
     paint.alpha = alpha
     paint.textSize = textSize
     paint.isAntiAlias = true // For smoother text
-    if (underline){
+    if (underline) {
         paint.isUnderlineText = true
     }
     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -780,7 +763,15 @@ fun removeWatermark(inputBitmap: Bitmap): Bitmap {
 
     // Apply adaptive threshold
     val binary = Mat()
-    Imgproc.adaptiveThreshold(gray, binary, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 11, 2.0)
+    Imgproc.adaptiveThreshold(
+        gray,
+        binary,
+        255.0,
+        Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+        Imgproc.THRESH_BINARY_INV,
+        11,
+        2.0
+    )
 
     // Create mask
     val mask = Mat.zeros(gray.size(), CvType.CV_8UC1)
@@ -788,13 +779,19 @@ fun removeWatermark(inputBitmap: Bitmap): Bitmap {
     // Find contours
     val contours = ArrayList<MatOfPoint>()
     val hierarchy = Mat()
-    Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+    Imgproc.findContours(
+        binary,
+        contours,
+        hierarchy,
+        Imgproc.RETR_EXTERNAL,
+        Imgproc.CHAIN_APPROX_SIMPLE
+    )
 
     // Draw contours on the mask
     for (contour in contours) {
         val area = Imgproc.contourArea(contour)
         if (area > 300) {
-           Imgproc.drawContours(mask, listOf(contour), -1, Scalar(255.0), -1)
+            Imgproc.drawContours(mask, listOf(contour), -1, Scalar(255.0), -1)
         }
     }
 
@@ -808,7 +805,8 @@ fun removeWatermark(inputBitmap: Bitmap): Bitmap {
     Photo.inpaint(bgrMat, mask, resultMat, 3.0, Photo.INPAINT_TELEA)
 
     // Convert Mat back to Bitmap safely
-    val outputBitmap = Bitmap.createBitmap(resultMat.cols(), resultMat.rows(), Bitmap.Config.ARGB_8888)
+    val outputBitmap =
+        Bitmap.createBitmap(resultMat.cols(), resultMat.rows(), Bitmap.Config.ARGB_8888)
     if (!outputBitmap.isRecycled) {
         Imgproc.cvtColor(resultMat, resultMat, Imgproc.COLOR_BGR2RGBA)
         Utils.matToBitmap(resultMat, outputBitmap)
@@ -865,11 +863,12 @@ fun processImageInBackground(
     originalBitmap: Bitmap,
     noiseLevel: Float = 5f,
     onSuccess: (Bitmap) -> Unit,
-    onError: (java.lang.Exception) -> Unit
+    onError: (java.lang.Exception) -> Unit,
 ) {
     CoroutineScope(Dispatchers.IO).launch {
         try {
-            val resultBitmap = removeNoiseAndEnhanceContrast(originalBitmap, noiseValue = noiseLevel)
+            val resultBitmap =
+                removeNoiseAndEnhanceContrast(originalBitmap, noiseValue = noiseLevel)
 
             // Switch back to the main thread to update the UI
             withContext(Dispatchers.Main) {
@@ -883,7 +882,7 @@ fun processImageInBackground(
     }
 }
 
-fun removeNoiseAndEnhanceContrast(originalBitmap: Bitmap,noiseValue: Float = 5f): Bitmap {
+fun removeNoiseAndEnhanceContrast(originalBitmap: Bitmap, noiseValue: Float = 5f): Bitmap {
     Log.d("TAG", "removeNoiseAndEnhanceContrast: Starting...")
 
     var image = Mat()
@@ -949,7 +948,7 @@ fun removeNoiseAndEnhanceContrast(originalBitmap: Bitmap,noiseValue: Float = 5f)
 
         // Convert result back to bitmap
         val resultBitmap =
-            Bitmap.createBitmap(contrastEnhanced.cols(), contrastEnhanced.rows(), Bitmap.Config.ARGB_8888)
+            createBitmap(contrastEnhanced.cols(), contrastEnhanced.rows())
         Utils.matToBitmap(contrastEnhanced, resultBitmap)
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Mat converted back to Bitmap successfully.")
 
@@ -967,4 +966,11 @@ fun removeNoiseAndEnhanceContrast(originalBitmap: Bitmap,noiseValue: Float = 5f)
 
         Log.d("TAG", "removeNoiseAndEnhanceContrast: Resources released.")
     }
+}
+
+
+fun scaleBitmap(bitmap: Bitmap, scaleFactor: Float): Bitmap {
+    val newWidth = (bitmap.width * scaleFactor).toInt()
+    val newHeight = (bitmap.height * scaleFactor).toInt()
+    return bitmap.scale(newWidth, newHeight)
 }
