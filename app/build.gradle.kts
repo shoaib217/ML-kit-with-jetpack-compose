@@ -65,6 +65,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
+    implementation(libs.play.services.location)
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
@@ -74,5 +75,6 @@ dependencies {
     implementation(libs.play.services.mlkit.document.scanner)
     implementation(libs.navigation.compose)
     implementation(project(":openCV"))
+    implementation(libs.kotlinx.coroutines.play.services)
 
 }
