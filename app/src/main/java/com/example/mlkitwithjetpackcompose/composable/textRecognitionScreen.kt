@@ -5,10 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -708,42 +704,6 @@ data class RecognizedDate(
     val year: Int,
 
     )
-
-
-fun addTextWatermark(
-    src: Bitmap,
-    watermarkText: String,
-    color: Int,
-    alpha: Int,
-    textSize: Float,
-    underline: Boolean,
-): Bitmap {
-    val w = src.width
-    val h = src.height
-    val result = Bitmap.createBitmap(w, h, src.config)
-    val canvas = Canvas(result)
-    canvas.drawBitmap(src, 0f, 0f, null)
-
-    val paint = Paint()
-    paint.color = color
-    paint.alpha = alpha
-    paint.textSize = textSize
-    paint.isAntiAlias = true // For smoother text
-    if (underline) {
-        paint.isUnderlineText = true
-    }
-    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-
-    // Calculate the position to center the text in the bottom right
-    val bounds = Rect()
-    paint.getTextBounds(watermarkText, 0, watermarkText.length, bounds)
-    val x = w - bounds.width() - 20 // 20 pixels padding from the right
-    val y = h - bounds.height() - 20 // 20 pixels padding from the bottom
-
-    canvas.drawText(watermarkText, x.toFloat(), y.toFloat(), paint)
-
-    return result
-}
 
 
 fun removeWatermark(inputBitmap: Bitmap): Bitmap {
