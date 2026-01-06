@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.core.graphics.createBitmap
 import coil.compose.AsyncImage
 import com.example.mlkitwithjetpackcompose.MainActivity
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -56,7 +57,6 @@ import com.google.android.gms.location.LocationServices
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.RESULT_FORMAT_JPEG
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.RESULT_FORMAT_PDF
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions.SCANNER_MODE_FULL
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import kotlinx.coroutines.Dispatchers
@@ -107,9 +107,10 @@ fun DocumentScannerScreen(mainActivity: MainActivity) {
 
     var lastPdfPath by remember { mutableStateOf<String?>(null) }
 
-    val options = GmsDocumentScannerOptions.Builder().setGalleryImportAllowed(false).setPageLimit(4)
-        .setResultFormats(RESULT_FORMAT_JPEG, RESULT_FORMAT_PDF).setScannerMode(SCANNER_MODE_FULL)
-        .build()
+    val options = GmsDocumentScannerOptions.Builder().setGalleryImportAllowed(false).setPageLimit(2)
+        .setResultFormats(RESULT_FORMAT_JPEG, RESULT_FORMAT_PDF)
+        .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL).build()
+
     val scanner = GmsDocumentScanning.getClient(options)
     val scannerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult(),
@@ -260,10 +261,7 @@ fun ZoomableAsyncImage(
                 .fillMaxWidth()
                 // Apply the zoom and pan transformations
                 .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offset.x,
-                    translationY = offset.y
+                    scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y
                 )
                 // Enable transformation gestures (zoom and pan)
                 .transformable(state = state)
@@ -331,37 +329,46 @@ private suspend fun fetchLocationAndAddress(
 }
 
 private fun addTextToBitmap(originalBitmap: Bitmap, text: String): Bitmap {
-    val newBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
-    val canvas = Canvas(newBitmap)
+    // 1. Setup the paint for the text
     val paint = TextPaint().apply {
-        color = Color.RED
-        textSize = 80f
+        color = Color.WHITE // Changed to white text
+        textSize = 50f      // A reasonable text size
         isAntiAlias = true
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        setShadowLayer(5f, 5f, 5f, Color.BLACK)
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
     }
 
     // --- MODIFICATION START ---
 
-    val padding = 70f
-    // The maximum width for the text is the bitmap's width minus padding on both sides
-    val maxTextWidth = newBitmap.width - (2 * padding)
+    val padding = 40f
+    // Max text width is the image width minus padding on both sides
+    val maxTextWidth = originalBitmap.width - (2 * padding)
 
-    val staticLayout = StaticLayout.Builder.obtain(text, 0, text.length, paint, maxTextWidth.toInt())
+    // 2. Use StaticLayout to measure the required height for the wrapped text
+    val textLayout = StaticLayout.Builder.obtain(text, 0, text.length, paint, maxTextWidth.toInt())
         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
         .setLineSpacing(0f, 1.0f)
-        .setIncludePad(false)
+        .setIncludePad(true)
         .build()
 
-    // Calculate starting Y position to draw from the bottom
-    val yPos = newBitmap.height - staticLayout.height - padding
+    // 3. Calculate the new bitmap's total height
+    val textHeight = textLayout.height
+    // New height = original height + space for text + top and bottom padding for the text area
+    val newHeight = originalBitmap.height + textHeight + (2 * padding.toInt())
 
-    // Save the current canvas state
+    // 4. Create a new, taller bitmap and fill it with a dark gray background
+    val newBitmap = createBitmap(originalBitmap.width, newHeight, originalBitmap.config!!)
+    val canvas = Canvas(newBitmap)
+    canvas.drawColor(Color.DKGRAY) // Changed to dark gray background
+
+    // 5. Draw the original scanned image at the top (coordinates 0,0)
+    canvas.drawBitmap(originalBitmap, 0f, 0f, null)
+
+    // 6. Draw the text in the new space at the bottom
+    // Save the current canvas state before moving it
     canvas.save()
-    // Translate the canvas to the correct position (left padding and calculated Y)
-    canvas.translate(padding, yPos)
-    // Draw the entire text layout
-    staticLayout.draw(canvas)
+    // Position the text block: move it down below the original image and add left padding
+    canvas.translate(padding, originalBitmap.height + padding)
+    textLayout.draw(canvas)
     // Restore the canvas to its original state
     canvas.restore()
 
