@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withTranslation
 import coil.compose.AsyncImage
 import com.example.mlkitwithjetpackcompose.MainActivity
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -109,7 +110,7 @@ fun DocumentScannerScreen(mainActivity: MainActivity) {
 
     val options = GmsDocumentScannerOptions.Builder().setGalleryImportAllowed(false).setPageLimit(2)
         .setResultFormats(RESULT_FORMAT_JPEG, RESULT_FORMAT_PDF)
-        .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL).build()
+        .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE).build()
 
     val scanner = GmsDocumentScanning.getClient(options)
     val scannerLauncher = rememberLauncherForActivityResult(
@@ -365,12 +366,11 @@ private fun addTextToBitmap(originalBitmap: Bitmap, text: String): Bitmap {
 
     // 6. Draw the text in the new space at the bottom
     // Save the current canvas state before moving it
-    canvas.save()
-    // Position the text block: move it down below the original image and add left padding
-    canvas.translate(padding, originalBitmap.height + padding)
-    textLayout.draw(canvas)
-    // Restore the canvas to its original state
-    canvas.restore()
+    canvas.withTranslation(padding, originalBitmap.height + padding) {
+        // Position the text block: move it down below the original image and add left padding
+        textLayout.draw(this)
+        // Restore the canvas to its original state
+    }
 
     // --- MODIFICATION END ---
 

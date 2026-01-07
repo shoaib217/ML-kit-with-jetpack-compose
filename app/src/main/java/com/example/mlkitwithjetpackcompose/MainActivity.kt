@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +44,24 @@ class MainActivity : ComponentActivity() {
 
         }
 
+    private lateinit var scannerHelper: DocumentScannerHelper
+
+    private val scannerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        scannerHelper.handleResult(result.resultCode, result.data)
+    }
+
+    // 2. Register Permission Launcher
+    private val permissionLauncherLocation = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.all { it }) {
+            Toast.makeText(this, "Ready to scan with location", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +93,24 @@ class MainActivity : ComponentActivity() {
                 permissionLauncher.launch(permissionToRequest.toTypedArray())
             }
         }
+
+        scannerHelper = DocumentScannerHelper(
+            activity = this,
+            onResult = { uris, pdfPath ->
+                // Update your ImageView or RecyclerView with uris
+                // Store pdfPath for sharing
+                Toast.makeText(this, "Processed ${uris.size} images", Toast.LENGTH_SHORT).show()
+            },
+            onError = { error ->
+                Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
+            }
+        )
+
+        // Request Permissions
+        permissionLauncherLocation.launch(arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ))
 
 
         setContent {

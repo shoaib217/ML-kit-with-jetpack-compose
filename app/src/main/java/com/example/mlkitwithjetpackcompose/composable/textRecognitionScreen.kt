@@ -81,7 +81,6 @@ enum class ImageProcess {
     FORM_16_CHECK
 }
 
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun TextRecognitionScreen() {
     val recognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
@@ -100,7 +99,7 @@ fun TextRecognitionScreen() {
     val file = context.createImageFile()
     val uri = FileProvider.getUriForFile(
         context,
-        "com.example.mlkitwithjetpackcompose" + ".provider", file
+        context.packageName + ".provider", file
     )
     val scope = rememberCoroutineScope()
 
