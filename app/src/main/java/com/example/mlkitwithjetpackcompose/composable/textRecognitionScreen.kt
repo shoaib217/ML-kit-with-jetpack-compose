@@ -49,7 +49,7 @@ import com.example.mlkitwithjetpackcompose.utility.createImageFile
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,7 +83,7 @@ enum class ImageProcess {
 
 @Composable
 fun TextRecognitionScreen() {
-    val recognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    val recognizer = TextRecognition.getClient(TextRecognizerOptions.Builder().build())
     val context = LocalContext.current
     var imageProcess = ImageProcess.REMOVE_NOISE
     var noiseLevel by remember { mutableFloatStateOf(0f) } // Initial denoising strength

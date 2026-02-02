@@ -27,6 +27,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.mlkitwithjetpackcompose.composable.CaptureIdScreen
 import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
 import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
 import com.example.mlkitwithjetpackcompose.ui.theme.MLkitWithJetpackComposeTheme
@@ -36,6 +37,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val TEXT_RECOGNITION_SCREEN = "textRecognitionScreen"
         const val DOCUMENT_SCANNER_SCREEN = "documentScannerScreen"
+        const val DOCUMENT_DETECTION = "document_detection"
         const val MAIN_SCREEN = "mainScreen"
     }
 
@@ -105,6 +107,7 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
             }
         )
+//        scannerHelper.startScan(scannerLauncher)
 
         // Request Permissions
         permissionLauncherLocation.launch(arrayOf(
@@ -122,7 +125,9 @@ class MainActivity : ComponentActivity() {
                     NavHost(
                         navController = navController,
                         startDestination = MAIN_SCREEN,
-                        modifier = Modifier.fillMaxSize().padding(it)
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(it)
                     ) {
                         composable(MAIN_SCREEN) {
                             MainScreen(navController)
@@ -133,6 +138,12 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(DOCUMENT_SCANNER_SCREEN) {
                             DocumentScannerScreen(mainActivity = this@MainActivity)
+                        }
+                        composable(DOCUMENT_DETECTION) {
+                            CaptureIdScreen(onIdVerified = { result ->
+                                println("result - $result")
+
+                            })
                         }
                     }
                 }
@@ -152,6 +163,9 @@ fun MainScreen(navController: NavHostController) {
         }
         FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_SCANNER_SCREEN) }) {
             Text(text = "Go to Document Scanner Screen")
+        }
+        FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_DETECTION) }) {
+            Text(text = "Go to Document verification")
         }
     }
 }

@@ -10,11 +10,14 @@ kotlinxCoroutinesPlayServices = "1.10.2"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.12.2"
 composeBom = "2025.12.01"
+objectDetection = "17.0.2"
 playServicesLocation = "21.3.0"
 playServicesMlkitDocumentScanner = "16.0.0"
 playServicesMlkitTextRecognitionDevanagari = "16.0.1"
 textRecognitionDevanagari = "16.0.1"
 navVersion = "2.9.6"
+cameraXVerion = "1.5.3"
+objectDetectionCustom = "17.0.2"
 
 
 [libraries]
@@ -34,12 +37,23 @@ androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-man
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
+object1-detection = { module = "com.google.mlkit:object-detection", version.ref = "objectDetection" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 play-services-mlkit-document-scanner = { module = "com.google.android.gms:play-services-mlkit-document-scanner", version.ref = "playServicesMlkitDocumentScanner" }
-play-services-mlkit-text-recognition-devanagari = { module = "com.google.android.gms:play-services-mlkit-text-recognition-devanagari", version.ref = "playServicesMlkitTextRecognitionDevanagari" }
-text-recognition-devanagari = { module = "com.google.mlkit:text-recognition-devanagari", version.ref = "textRecognitionDevanagari" }
+play-services-mlkit-text-recognition = { module = "com.google.android.gms:play-services-mlkit-text-recognition", version.ref = "playServicesMlkitTextRecognitionDevanagari" }
+text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "textRecognitionDevanagari" }
 navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navVersion" }
 
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+
+# ... keep existing libraries
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraXVerion" }
+androidx-camera-mlkit-vision = { group = "androidx.camera", name = "camera-mlkit-vision", version.ref = "cameraXVerion" }
+
+# ADD THESE TWO LINES:
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraXVerion" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraXVerion" }
+object1-detection-custom = { group = "com.google.mlkit", name = "object-detection-custom", version.ref = "objectDetectionCustom" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
