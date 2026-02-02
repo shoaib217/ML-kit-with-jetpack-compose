@@ -1,161 +1,126 @@
 package com.example.mlkitwithjetpackcompose.utility
 
+import android.util.Log
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
 import com.google.mlkit.vision.text.Text
 import java.util.regex.Pattern
 
 object IdDataExtractor {
 
-    // Regex for specific fields
+    // Regex for specific fields - Normalized to handle common OCR gaps
     private val DATE_PATTERN = Pattern.compile("\\b\\d{2}[/-]\\d{2}[/-]\\d{4}\\b")
     private val PAN_PATTERN = Pattern.compile("[A-Z]{5}[0-9]{4}[A-Z]{1}")
     private val AADHAAR_PATTERN = Pattern.compile("[2-9]{1}[0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}")
     private val DL_PATTERN = Pattern.compile("[A-Z]{2}[-]?[0-9]{2,3}[-]?[0-9]{4}[-]?[0-9]{7,}")
 
-    // Words to ignore when searching for Names
     private val IGNORE_HEADERS = listOf(
-        "INCOME", "TAX", "DEPARTMENT", "GOVT", "INDIA", "GOVERNMENT", "MALE", "FEMALE", "DOB", "YEAR", "BIRTH", "PERMANENT", "ACCOUNT", "NUMBER", "CARD", "FATHER"
+        "INCOME", "TAX", "DEPARTMENT", "GOVT", "INDIA", "GOVERNMENT",
+        "MALE", "FEMALE", "DOB", "YEAR", "BIRTH", "ACCOUNT", "NUMBER", "FATHER"
     )
 
-
-    // WEB JUNK BLOCKLIST
-    // If these words appear, it's likely a screenshot from Google/Web
-    private val BLOCKLIST = listOf(
-        "SAMPLE", "SPECIMEN", "VOID", "DUMMY", "ORIGINAL", // Sample markers
-        "SEARCH", "LENS", "SHARE", "VISIT", "IMAGES", "RELATED", "STOCK" // Google Image UI elements
-    )
-
-    fun getDocumentType(fullText: String): IdType? {
-        val upperText = fullText.uppercase()
-
-        // 1. Immediate Rejection for Web Artifacts
-        if (BLOCKLIST.any { upperText.contains(it) }) {
-            return null
-        }
-
-        // 2. Scan line by line for precise ID numbers
-        val lines = fullText.split("\n")
-
-        for (line in lines) {
-            val cleanLine = line.replace(" ", "").trim()
-
-            // Check PAN
-            val panMatcher = PAN_PATTERN.matcher(cleanLine)
-            if (panMatcher.find()) {
-                return IdType.PAN
-            }
-
-            // Check Aadhaar
-            // We strip spaces strictly for checking the 12-digit sequence
-            val digitOnly = cleanLine.filter { it.isDigit() }
-            if (digitOnly.length == 12 && AADHAAR_PATTERN.matcher(line.trim()).find()) {
-                // Additional check: Verhoeff algorithm could go here for 100% security
-                return IdType.AADHAAR
-            }
-
-            // Check DL
-            // DL usually requires the keyword "DRIVING" to be present elsewhere in the full text
-            // to avoid false positives with other random numbers
-            if (DL_PATTERN.matcher(cleanLine).find() && upperText.contains("DRIVING")) {
-                return IdType.DRIVING_LICENSE
-            }
-        }
-        return null
-    }
+    private val BLOCKLIST = listOf("SAMPLE", "SPECIMEN", "VOID", "DUMMY", "LENS", "SHARE", "STOCK")
 
     fun extractData(visionText: Text): ExtractedDocument? {
         val fullText = visionText.text
+        if (BLOCKLIST.any { fullText.uppercase().contains(it) }) return null
 
-        // 1. Detect Type first
-        val documentType = getDocumentType(fullText) ?: return null
+        val docType = getDocumentType(fullText) ?: return null
 
-        println("documentType - $documentType")
-
-        // 2. Extract fields based on type
-        return when (documentType) {
+        return when (docType) {
             IdType.PAN -> extractPanDetails(visionText)
             IdType.AADHAAR -> extractAadhaarDetails(visionText)
             IdType.DRIVING_LICENSE -> extractDlDetails(visionText)
         }
     }
 
+    private fun getDocumentType(fullText: String): IdType? {
+        val upper = fullText.uppercase()
+        return when {
+            PAN_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.PAN
+            upper.contains("MALE") || upper.contains("FEMALE") || AADHAAR_PATTERN.matcher(upper).find() -> IdType.AADHAAR
+            upper.contains("DRIVING") && DL_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.DRIVING_LICENSE
+            else -> null
+        }
+    }
 
     // --- PAN LOGIC ---
-    // PAN Structure is usually: Header -> Name -> Father Name -> DOB -> PAN Number
     private fun extractPanDetails(text: Text): ExtractedDocument {
-        val blocks = text.textBlocks.flatMap { it.lines }.map { it.text }
-        
-        val panNumber = findPattern(blocks, PAN_PATTERN) ?: ""
-        val dob = findPattern(blocks, DATE_PATTERN)
-        
-        // Name Heuristic: The first line that isn't a header, isn't the PAN, and isn't the DOB
-        val name = blocks.firstOrNull { line ->
-            val upper = line.uppercase()
-            !upper.containsPattern(PAN_PATTERN) &&
-            !upper.containsPattern(DATE_PATTERN) &&
-            !IGNORE_HEADERS.any { upper.contains(it) } && 
-            line.length > 3 && 
-            !line.any { it.isDigit() } // Names rarely have numbers
-        }
+        val lines = text.textBlocks.flatMap { it.lines }
+        val rawTextLines = lines.map { it.text }
 
-        return ExtractedDocument(IdType.PAN, panNumber, name, dob)
+        val id = findPattern(rawTextLines, PAN_PATTERN) ?: ""
+        val dob = findPattern(rawTextLines, DATE_PATTERN)
+
+        // PAN Name is usually the first line that doesn't contain headers or numbers
+        val name = lines.map { it.text }.firstOrNull { isPotentialName(it) && !it.contains("TAX", true) }
+
+        return ExtractedDocument(IdType.PAN, id, name, dob)
     }
 
     // --- AADHAAR LOGIC ---
-    // Aadhaar Structure: Name is often the line ABOVE the DOB or Year of Birth
     private fun extractAadhaarDetails(text: Text): ExtractedDocument {
-        val lines = text.textBlocks.flatMap { it.lines }.map { it.text }
-        
-        // Clean Aadhaar number (remove spaces)
-        var rawUid = findPattern(lines, AADHAAR_PATTERN) ?: ""
-        // If regex found spaces (xxxx xxxx xxxx), remove them for the final ID
-        val cleanUid = rawUid.replace(" ", "")
+        val allLines = text.textBlocks.flatMap { it.lines }
+        val id = normalizeId(findPattern(allLines.map { it.text }, AADHAAR_PATTERN) ?: "").replace(" ", "")
 
-        val dobFilterList = lines.mapNotNull { if (it.contains("DOB",true)) it else null }
-        val dob = findPattern(dobFilterList, DATE_PATTERN)
+        // Find the DOB line to use as a spatial anchor
+        val dobLine = allLines.find { it.text.contains("DOB", true) || it.text.contains("Year", true) }
+        val dob = dobLine?.let { findPattern(listOf(it.text), DATE_PATTERN) }
 
-        // Name Heuristic: Find the DOB line index, look 1 or 2 lines above it
-        var name: String? = null
-        val dobIndex = lines.indexOfFirst { it.containsPattern(DATE_PATTERN) || it.contains("DOB", true) || it.contains("Year of Birth", true) }
-        
-        if (dobIndex > 0) {
-            // Check the line immediately above DOB
-            val candidate = lines[dobIndex - 1]
-            if (!candidate.contains("Government") && !candidate.any { it.isDigit() }) {
-                name = candidate
-            }
-        }
+        // Spatial Search: Name is almost always physically ABOVE the DOB line
+        val name = dobLine?.let { findTextAbove(allLines, it) } ?:
+        allLines.map { it.text }.firstOrNull { isPotentialName(it) }
 
-        return ExtractedDocument(IdType.AADHAAR, cleanUid, name, dob)
+        return ExtractedDocument(IdType.AADHAAR, id, name, dob)
     }
 
     // --- DL LOGIC ---
-    // DL Structure: "Name: John Doe" or just headers
     private fun extractDlDetails(text: Text): ExtractedDocument {
         val lines = text.textBlocks.flatMap { it.lines }.map { it.text }
+        val id = normalizeId(findPattern(lines, DL_PATTERN) ?: "")
+        val dobFiltered = lines.mapNotNull { if (it.contains("DOB", true)) it else null }
+        Log.d("TAG", "extractDlDetails: $dobFiltered")
+        val dob = findPattern(dobFiltered, DATE_PATTERN)
 
-        println("lines - $lines")
-        val dlNum = findPattern(lines, DL_PATTERN) ?: ""
-        val dobFilterList = lines.mapNotNull { if (it.contains("DOB",true)) it else null }
-        val dob = findPattern(dobFilterList, DATE_PATTERN)
-
-        // Name Heuristic: Look for line starting with "Name"
         var name = lines.firstOrNull { it.startsWith("Name", true) }
         name = name?.replace("Name", "", true)?.replace(":", "")?.trim()
 
-        return ExtractedDocument(IdType.DRIVING_LICENSE, dlNum.substringAfterLast("DLNo"), name, dob)
+        return ExtractedDocument(IdType.DRIVING_LICENSE, id, name, dob)
     }
 
-    // --- HELPERS ---
+    // --- REFINED HELPERS ---
+
+    /**
+     * Fixes common OCR errors where numbers are read as similar-looking letters
+     */
+    private fun normalizeId(input: String): String {
+        return input.replace('O', '0')
+            .replace('I', '1')
+            .replace('z', '2')
+            .replace('S', '5')
+    }
+
+    private fun isPotentialName(text: String): Boolean {
+        val upper = text.uppercase()
+        return text.length > 3 &&
+                !text.any { it.isDigit() } &&
+                !IGNORE_HEADERS.any { upper.contains(it) }
+    }
+
+    /**
+     * Uses Bounding Boxes to find the line of text directly above a target line
+     */
+    private fun findTextAbove(allLines: List<Text.Line>, target: Text.Line): String? {
+        return allLines
+            .filter { it.boundingBox!!.bottom < target.boundingBox!!.top }
+            .maxByOrNull { it.boundingBox!!.bottom } // Get the closest one above
+            ?.text?.takeIf { isPotentialName(it) }
+    }
+
     private fun findPattern(lines: List<String>, pattern: Pattern): String? {
         return lines.firstNotNullOfOrNull { line ->
-            val cleanLine = line.replace(" ", "").trim()
-            val matcher = pattern.matcher(cleanLine)
+            val clean = line.replace(" ", "")
+            val matcher = pattern.matcher(clean)
             if (matcher.find()) matcher.group() else null
         }
-    }
-
-    private fun String.containsPattern(pattern: Pattern): Boolean {
-        return pattern.matcher(this).find()
     }
 }
