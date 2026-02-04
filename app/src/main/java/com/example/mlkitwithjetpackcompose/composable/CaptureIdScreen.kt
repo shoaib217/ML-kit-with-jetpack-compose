@@ -8,6 +8,8 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -68,10 +70,17 @@ fun CaptureIdScreen(onIdVerified: (ExtractedDocument) -> Unit) {
     var cameraControl by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
 
    // Camera References
-    val imageCapture = remember { 
+    val imageCapture = remember {
         ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .build() 
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setResolutionSelector(
+                ResolutionSelector.Builder()
+                    .setResolutionStrategy(
+                        ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY
+                    )
+                    .build()
+            )
+            .build()
     }
 
     LaunchedEffect(isFlashOn) {

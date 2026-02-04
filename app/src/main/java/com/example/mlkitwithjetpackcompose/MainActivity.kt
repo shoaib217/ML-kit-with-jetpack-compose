@@ -13,13 +13,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -30,7 +36,9 @@ import androidx.navigation.compose.rememberNavController
 import com.example.mlkitwithjetpackcompose.composable.CaptureIdScreen
 import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
 import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
+import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
 import com.example.mlkitwithjetpackcompose.ui.theme.MLkitWithJetpackComposeTheme
+import org.json.JSONObject
 import org.opencv.android.OpenCVLoader
 
 class MainActivity : ComponentActivity() {
@@ -140,10 +148,35 @@ class MainActivity : ComponentActivity() {
                             DocumentScannerScreen(mainActivity = this@MainActivity)
                         }
                         composable(DOCUMENT_DETECTION) {
+                            var extractedDocument by remember { mutableStateOf<ExtractedDocument?>(null) }
                             CaptureIdScreen(onIdVerified = { result ->
                                 println("result - $result")
+                                extractedDocument = result
+                                val ocrJSON = JSONObject().apply {
+                                    put("type", result.type.name)
+                                    put("idNumber", result.idNumber)
+                                    put("name", result.name)
+                                    put("dob", result.dob)
+                                }
+                                println("ocrJSON - $ocrJSON")
 
                             })
+                            if (extractedDocument != null) {
+                                val extractedData = "Document Type: ${extractedDocument?.type?.name} \n" +
+                                        "ID Number: ${extractedDocument?.idNumber} \n" +
+                                        "Name: ${extractedDocument?.name} \n" +
+                                        "DOB: ${extractedDocument?.dob} \n" +
+                                        "Address: ${extractedDocument?.address} \n" +
+                                        "Is Expired: ${if (extractedDocument?.isExpired == true) "Yes" else "No"}"
+                                AlertDialog(
+                                    onDismissRequest = { extractedDocument = null },
+                                    confirmButton = {
+                                        TextButton(onClick = { extractedDocument = null }) { Text("OK") }
+                                    },
+                                    title = { Text("Extracted Document") },
+                                    text = { Text(extractedData) }
+                                )
+                            }
                         }
                     }
                 }
