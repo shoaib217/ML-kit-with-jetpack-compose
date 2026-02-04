@@ -7,7 +7,7 @@ import java.util.regex.Pattern
 object IdDataExtractor {
 
     // Regex for specific fields - Normalized to handle common OCR gaps
-    private val DATE_PATTERN = Pattern.compile("\\b\\d{2}[/-]\\d{2}[/-]\\d{4}\\b")
+    private val DATE_PATTERN = Pattern.compile("[0-3]?\\d[/-][0-1]?\\d[/-]\\d{4}")
     private val PAN_PATTERN = Pattern.compile("[A-Z]{5}[0-9]{4}[A-Z]{1}")
     private val AADHAAR_PATTERN = Pattern.compile("[2-9]{1}[0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}")
     private val DL_PATTERN = Pattern.compile("[A-Z]{2}[-]?[0-9]{2,3}[-]?[0-9]{4}[-]?[0-9]{7,}")
@@ -15,6 +15,11 @@ object IdDataExtractor {
     private val IGNORE_HEADERS = listOf(
         "INCOME", "TAX", "DEPARTMENT", "GOVT", "INDIA", "GOVERNMENT",
         "MALE", "FEMALE", "DOB", "YEAR", "BIRTH", "ACCOUNT", "NUMBER", "FATHER"
+    )
+
+    private val DL_JUNK_WORDS = listOf(
+        "TRANSPORT", "DEPARTMENT", "GOVT", "INDIA", "STATE", "DRIVING", "LICENCE", "LICENSE",
+        "UNION", "TERRITORY", "VALID", "AUTHORIZATION", "ISSUE", "DATE", "CARD", "CHIP"
     )
 
     private val BLOCKLIST = listOf("SAMPLE", "SPECIMEN", "VOID", "DUMMY", "LENS", "SHARE", "STOCK")
@@ -148,11 +153,27 @@ object IdDataExtractor {
 
         // 2. Extract DOB
         val dobFiltered = rawLinesStrings.filter { it.contains("DOB", true) || it.contains("Birth", true) || it.trim().contains("DOB:", true)  }
+        println("dobFiltered : $dobFiltered")
         val dob = findPattern(dobFiltered, DATE_PATTERN)
 
         // 3. Extract Name
-        var name = rawLinesStrings.firstOrNull { it.startsWith("Name", true) || it.contains("Name:", true) }
-        name = name?.replace("Name", "", true)?.replace(":", "")?.trim()
+        // Attempt A: Explicit Label "Name"
+        var name = rawLinesStrings.firstOrNull { it.contains("Name", true) }
+            ?.replace("Name", "", true)
+            ?.replace(":", "")
+            ?.replace(".", "")
+            ?.trim()
+
+        // Attempt B: Spatial Context (Below DL Number, Above S/o or DOB)
+        if (name.isNullOrEmpty() || name.length < 3) {
+            name = findDlNameByContext(allLines, id)
+        }
+
+        // Final Clean: Remove any accidentally captured digits or symbols
+        if (name != null && name.any { it.isDigit() }) {
+            // If name contains digits, it's likely garbage. Reset to null or clean it.
+            name = name.filter { !it.isDigit() }.trim()
+        }
 
         // 4. Extract Expiry & Validate
         // Look for keywords like "Valid", "Expiry", "Until", or "NT" (common in Indian DLs)
@@ -176,20 +197,82 @@ object IdDataExtractor {
         )
     }
 
-    private fun extractAddress(allLines: List<Text.Line>): String? {
-        val addressHeader = allLines.find { it.text.contains("Address", true) || it.text.contains("Add", true) } ?: return null
+    private fun findDlNameByContext(lines: List<Text.Line>, dlNumber: String): String? {
+        // Find the index of the line containing the DL Number
+        val dlIndex = lines.indexOfFirst {
+            val normText = it.text.replace(" ", "").replace("-", "")
+            val normDl = dlNumber.replace(" ", "").replace("-", "")
+            normText.contains(normDl, true) || it.text.contains("DL No", true)
+        }
 
-        return allLines
-            .filter {
-                // Find lines physically below the "Address" header but within a reasonable distance
-                it.boundingBox!!.top > addressHeader.boundingBox!!.top &&
-                        it.boundingBox!!.top < addressHeader.boundingBox!!.top + 400 // Limit search area
+        if (dlIndex != -1) {
+            // Look at the next 3 lines below the DL Number
+            // The name is usually here.
+            for (i in 1..3) {
+                if (dlIndex + i >= lines.size) break
+                val candidateLine = lines[dlIndex + i].text
+
+                // Validate this candidate
+                if (isValidDlNameCandidate(candidateLine)) {
+                    return candidateLine
+                }
+            }
+        }
+
+        // Fallback: Sometimes Name is at the very top (above DL number), but below "State"
+        // This is riskier, so we check strictly.
+        return lines.firstOrNull { isValidDlNameCandidate(it.text) }?.text
+    }
+
+    private fun isValidDlNameCandidate(text: String): Boolean {
+        val upper = text.uppercase()
+
+        return text.length > 3 &&
+                !text.any { it.isDigit() } &&                  // No numbers in names
+                !upper.contains("S/O") &&                      // Not Father's name line
+                !upper.contains("W/O") &&                      // Not Husband's name line
+                !upper.contains("D/O") &&                      // Not Daughter's name line
+                !upper.contains("ADDRESS") &&                  // Not Address
+                !DL_JUNK_WORDS.any { upper.contains(it) }      // Not a header like "Transport Dept"
+    }
+
+    private fun extractAddress(allLines: List<Text.Line>): String? {
+        // 1. Find the anchor (The line containing "Address" or "Add")
+        val addressHeader = allLines.find {
+            it.text.contains("Address", true) || it.text.contains("Add:", true)|| it.text.contains("Add", true)
+        } ?: return null
+
+        val headerBox = addressHeader.boundingBox ?: return null
+
+        // 2. Get text on the SAME line (to the right of the label)
+        val sameLineText = addressHeader.text
+            .replace("Address", "", true)
+            .replace("Add", "", true)
+            .replace(":", "")
+            .trim()
+
+        // 3. Get lines physically BELOW the header
+        val linesBelow = allLines
+            .filter { line ->
+                val box = line.boundingBox ?: return@filter false
+                // Logic: Top of line is below the header, and it's horizontally aligned
+                box.top > headerBox.top &&
+                        box.top < headerBox.top + 450 && // Vertical threshold
+                        box.left < headerBox.right + 200 // Ensure it's not a different column
             }
             .sortedBy { it.boundingBox!!.top }
-            .take(3) // Usually addresses are 2-3 lines
-            .joinToString(" ") { it.text }
-            .replace("Address", "", true)
-            .replace(":", "")
+            .take(3)
+            .map { it.text }
+
+        // 4. Combine same-line text with lines below
+        val fullAddress = mutableListOf<String>()
+        if (sameLineText.isNotEmpty()) {
+            fullAddress.add(sameLineText)
+        }
+        fullAddress.addAll(linesBelow)
+
+        return fullAddress.joinToString(" ")
+            .replace(Regex("\\s+"), " ") // Clean extra spaces
             .trim()
     }
 
@@ -238,9 +321,20 @@ object IdDataExtractor {
 
     private fun findPattern(lines: List<String>, pattern: Pattern): String? {
         return lines.firstNotNullOfOrNull { line ->
-            val clean = line.replace(" ", "")
-            val matcher = pattern.matcher(clean)
-            if (matcher.find()) matcher.group() else null
+            // Strategy 1: strict match on original line (Fixes "DOB 15-02-1997")
+            val matcherOriginal = pattern.matcher(line.trim())
+            if (matcherOriginal.find()) {
+                return@firstNotNullOfOrNull matcherOriginal.group()
+            }
+
+            // Strategy 2: Spaceless match (Fixes "1 5 - 0 2 - 1 9 9 7")
+            val cleanLine = line.replace(" ", "")
+            val matcherClean = pattern.matcher(cleanLine)
+            if (matcherClean.find()) {
+                return@firstNotNullOfOrNull matcherClean.group()
+            }
+
+            null
         }
     }
 }

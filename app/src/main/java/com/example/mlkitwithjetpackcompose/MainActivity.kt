@@ -151,14 +151,17 @@ class MainActivity : ComponentActivity() {
                             var extractedDocument by remember { mutableStateOf<ExtractedDocument?>(null) }
                             CaptureIdScreen(onIdVerified = { result ->
                                 println("result - $result")
-                                extractedDocument = result
                                 val ocrJSON = JSONObject().apply {
                                     put("type", result.type.name)
                                     put("idNumber", result.idNumber)
                                     put("name", result.name)
                                     put("dob", result.dob)
+                                    put("address", result.address)
+                                    put("isExpired", result.isExpired)
                                 }
                                 println("ocrJSON - $ocrJSON")
+                                extractedDocument = result
+
 
                             })
                             if (extractedDocument != null) {
