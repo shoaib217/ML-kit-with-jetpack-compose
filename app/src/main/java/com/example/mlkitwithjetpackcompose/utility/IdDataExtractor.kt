@@ -42,6 +42,67 @@ object IdDataExtractor {
         }
     }
 
+    private fun findNameBelowHeader(lines: List<Text.Line>): String? {
+        // Find the line index containing "INCOME" or "TAX"
+        val headerIndex = lines.indexOfFirst {
+            val t = it.text.uppercase()
+            t.contains("INCOME") || t.contains("TAX") || t.contains("DEPARTMENT")
+        }
+
+        if (headerIndex != -1 && headerIndex + 1 < lines.size) {
+            // Check the next 2 lines (to skip 'Govt of India' or multi-line headers)
+            for (i in 1..2) {
+                if (headerIndex + i >= lines.size) break
+                val candidate = lines[headerIndex + i]
+                if (isValidName(candidate.text)) {
+                    return candidate.text
+                }
+            }
+        }
+        return null
+    }
+
+    // Helper B: Look above the ID (Bottom-up approach)
+    private fun findNameAboveId(lines: List<Text.Line>, panId: String): String? {
+        // Find the line containing the PAN ID
+        val idLineIndex = lines.indexOfFirst { it.text.contains(panId, ignoreCase = true) }
+
+        if (idLineIndex > 1) {
+            // The structure is usually:
+            // [Name]
+            // [Father's Name]
+            // [DOB]
+            // [PAN Number]
+            // So we look 2 to 3 lines above the ID.
+
+            // Try looking 3 lines up first (Name), then 2 lines up
+            for (offset in 3 downTo 1) {
+                val targetIndex = idLineIndex - offset
+                if (targetIndex >= 0) {
+                    val candidate = lines[targetIndex]
+                    if (isValidName(candidate.text)) {
+                        return candidate.text
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    // Strict validation to ensure we don't pick up garbage
+    private fun isValidName(text: String): Boolean {
+        val upper = text.uppercase()
+        return text.length > 2 &&
+                !text.any { it.isDigit() } && // Names don't have numbers
+                !upper.contains("INCOME") &&
+                !upper.contains("TAX") &&
+                !upper.contains("INDIA") &&
+                !upper.contains("GOVT") &&
+                !upper.contains("PERMANENT") &&
+                !upper.contains("ACCOUNT") &&
+                !upper.contains("FATHER") // Skip "Father's Name" label
+    }
+
     // --- PAN LOGIC ---
     private fun extractPanDetails(text: Text): ExtractedDocument {
         val lines = text.textBlocks.flatMap { it.lines }
@@ -50,9 +111,14 @@ object IdDataExtractor {
         val id = findPattern(rawTextLines, PAN_PATTERN) ?: ""
         val dob = findPattern(rawTextLines, DATE_PATTERN)
 
-        // PAN Name is usually the first line that doesn't contain headers or numbers
-        val name = lines.map { it.text }.firstOrNull { isPotentialName(it) && !it.contains("TAX", true) }
+        // Strategy A: Find "Income Tax Department" and take the NEXT valid line
+        var name = findNameBelowHeader(lines)
 
+        // Strategy B: If A fails, find the PAN Number and look 2-3 lines ABOVE it
+        // (Layout: Name -> Father Name -> DOB -> PAN Number)
+        if (name == null && id.isNotEmpty()) {
+            name = findNameAboveId(lines, id)
+        }
         return ExtractedDocument(IdType.PAN, id, name, dob)
     }
 
