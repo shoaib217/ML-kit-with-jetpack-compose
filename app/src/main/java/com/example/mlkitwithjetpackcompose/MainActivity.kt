@@ -149,42 +149,104 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(DOCUMENT_DETECTION) {
                             var extractedDocument by remember { mutableStateOf<ExtractedDocument?>(null) }
+
                             CaptureIdScreen(onIdVerified = { result ->
-                                println("result - $result")
+                                // 1. Create JSON using the safe sealed class properties
                                 val ocrJSON = JSONObject().apply {
                                     put("type", result.type.name)
-                                    put("idNumber", result.idNumber)
-                                    put("name", result.name)
-                                    put("dob", result.dob)
-                                    put("address", result.address)
-                                    put("gender", result.gender?.name)
-                                    put("isExpired", result.isExpired)
+
+                                    // Accessing common properties directly from the sealed class base/wrappers
+                                    // (Note: Since we used a sealed class, we handle specific fields inside a when or via cast)
+                                    when (result) {
+                                        is ExtractedDocument.Aadhaar -> {
+                                            put("idNumber", result.id)
+                                            put("name", result.name)
+                                            put("dob", result.dob)
+                                            put("gender", result.gender?.name)
+                                            put("address", null)
+                                            put("isExpired", false)
+                                        }
+                                        is ExtractedDocument.DrivingLicense -> {
+                                            put("idNumber", result.id)
+                                            put("name", result.name)
+                                            put("dob", result.dob)
+                                            put("address", result.address)
+                                            put("isExpired", result.isExpired)
+                                            put("gender", null)
+                                        }
+                                        is ExtractedDocument.Pan -> {
+                                            put("idNumber", result.id)
+                                            put("name", result.name)
+                                            put("dob", result.dob)
+                                            put("address", null)
+                                            put("gender", null)
+                                            put("isExpired", false)
+                                        }
+                                        is ExtractedDocument.Passport -> {
+                                            put("idNumber", result.id)
+                                            put("name", result.name)
+                                            put("dob", result.dob)
+                                            put("gender", result.gender?.name)
+                                            put("isExpired", result.isExpired)
+                                            put("address", null)
+                                        }
+                                    }
                                 }
+
                                 println("ocrJSON - $ocrJSON")
                                 extractedDocument = result
-
-
                             })
-                            if (extractedDocument != null) {
-                                val extractedData = "Document Type: ${extractedDocument?.type?.name} \n" +
-                                        "ID Number: ${extractedDocument?.idNumber} \n" +
-                                        "Name: ${extractedDocument?.name} \n" +
-                                        "DOB: ${extractedDocument?.dob} \n" +
-                                        "Address: ${extractedDocument?.address} \n" +
-                                        "Gender: ${extractedDocument?.gender?.name} \n" +
-                                        "Is Expired: ${if (extractedDocument?.isExpired == true) "Yes" else "No"}"
+
+                            // 2. Display Dialog with dynamic data based on the Sealed Class type
+                            extractedDocument?.let { doc ->
                                 AlertDialog(
                                     onDismissRequest = { extractedDocument = null },
                                     confirmButton = {
                                         TextButton(onClick = { extractedDocument = null }) { Text("OK") }
                                     },
-                                    title = { Text("Extracted Document") },
-                                    text = { Text(extractedData) }
+                                    title = { Text("Extracted ${doc.type.name}") },
+                                    text = {
+                                        Text(buildDocumentDisplayString(doc))
+                                    }
                                 )
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
+    return buildString {
+        // Common fields for all IDs
+        val (id, name, dob) = when(doc) {
+            is ExtractedDocument.Aadhaar -> Triple(doc.id, doc.name, doc.dob)
+            is ExtractedDocument.DrivingLicense -> Triple(doc.id, doc.name, doc.dob)
+            is ExtractedDocument.Pan -> Triple(doc.id, doc.name, doc.dob)
+            is ExtractedDocument.Passport -> Triple(doc.id, doc.name, doc.dob)
+        }
+
+        append("ID Number: $id\n")
+        name?.let { append("Name: $it\n") }
+        dob?.let { append("DOB: $it\n") }
+
+        // Specific fields
+        when (doc) {
+            is ExtractedDocument.Aadhaar -> {
+                doc.gender?.let { append("Gender: ${it.name}\n") }
+            }
+            is ExtractedDocument.Passport -> {
+                doc.gender?.let { append("Gender: ${it.name}\n") }
+                append("Expired: ${if (doc.isExpired) "Yes" else "No"}")
+            }
+            is ExtractedDocument.DrivingLicense -> {
+                doc.address?.let { append("Address: $it\n") }
+                append("Expired: ${if (doc.isExpired) "Yes" else "No"}")
+            }
+            is ExtractedDocument.Pan -> {
+                // No extra fields for PAN in this model
             }
         }
     }

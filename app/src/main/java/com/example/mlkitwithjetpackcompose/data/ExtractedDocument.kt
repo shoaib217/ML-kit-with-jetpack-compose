@@ -1,11 +1,17 @@
 package com.example.mlkitwithjetpackcompose.data
 
-data class ExtractedDocument(
-    val type: IdType,
-    val idNumber: String,
-    val name: String?,      // Nullable, as it's hard to capture 100% correctly
-    val dob: String?,        // Nullable
-    val address: String? = null,    // Add this
-    val isExpired: Boolean = false,
-    val gender: Gender? = null
-)
+sealed class ExtractedDocument(val type: IdType) {
+    data class Pan(val id: String, val name: String?, val dob: String?) : ExtractedDocument(IdType.PAN)
+
+    data class Aadhaar(val id: String, val name: String?, val dob: String?, val gender: Gender?) : ExtractedDocument(IdType.AADHAAR)
+
+    data class DrivingLicense(
+        val id: String, val name: String?, val dob: String?,
+        val address: String?, val isExpired: Boolean
+    ) : ExtractedDocument(IdType.DRIVING_LICENSE)
+
+    data class Passport(
+        val id: String, val name: String?, val dob: String?,
+        val gender: Gender?, val isExpired: Boolean
+    ) : ExtractedDocument(IdType.PASSPORT)
+}

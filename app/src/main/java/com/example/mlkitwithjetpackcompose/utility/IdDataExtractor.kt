@@ -41,7 +41,7 @@ object IdDataExtractor {
         }
     }
 
-    private fun extractPassportDetails(text: Text): ExtractedDocument {
+    private fun extractPassportDetails(text: Text): ExtractedDocument.Passport {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawStrings = allLines.map { it.text }
 
@@ -91,10 +91,9 @@ object IdDataExtractor {
 
         val fullName = "${givenName ?: ""} ${surname ?: ""}".trim()
 
-        return ExtractedDocument(
-            type = IdType.PASSPORT,
-            idNumber = id,
-            name = if (fullName.isNotEmpty()) fullName else null,
+        return ExtractedDocument.Passport(
+            id = id,
+            name = fullName.ifEmpty { null },
             dob = dob,
             gender = gender,
             isExpired = isExpired
@@ -139,7 +138,7 @@ object IdDataExtractor {
     }
 
 
-    private fun getDocumentType(fullText: String): IdType? {
+    fun getDocumentType(fullText: String): IdType? {
         val upper = fullText.uppercase()
         return when {
             // Passport detection: Usually contains "PASSPORT" or the MRZ start pattern "P<"
@@ -213,7 +212,7 @@ object IdDataExtractor {
     }
 
     // --- PAN LOGIC ---
-    private fun extractPanDetails(text: Text): ExtractedDocument {
+    private fun extractPanDetails(text: Text): ExtractedDocument.Pan {
         val lines = text.textBlocks.flatMap { it.lines }
         val rawTextLines = lines.map { it.text }
 
@@ -228,11 +227,11 @@ object IdDataExtractor {
         if (name == null && id.isNotEmpty()) {
             name = findNameAboveId(lines, id)
         }
-        return ExtractedDocument(IdType.PAN, id, name, dob)
+        return ExtractedDocument.Pan(id, name, dob)
     }
 
     // --- AADHAAR LOGIC ---
-    private fun extractAadhaarDetails(text: Text): ExtractedDocument {
+    private fun extractAadhaarDetails(text: Text): ExtractedDocument.Aadhaar {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawStrings = allLines.map { it.text }
         val id = normalizeId(findPattern(allLines.map { it.text }, AADHAAR_PATTERN) ?: "").replace(" ", "")
@@ -247,9 +246,8 @@ object IdDataExtractor {
 
         val gender = detectGender(rawStrings)
 
-        return ExtractedDocument(
-            type = IdType.AADHAAR,
-            idNumber = id,
+        return ExtractedDocument.Aadhaar(
+            id = id,
             name = name,
             dob = dob,
             gender = gender
@@ -257,7 +255,7 @@ object IdDataExtractor {
     }
 
     // --- DL LOGIC ---
-    private fun extractDlDetails(text: Text): ExtractedDocument {
+    private fun extractDlDetails(text: Text): ExtractedDocument.DrivingLicense {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawLinesStrings = allLines.map { it.text }
 
@@ -300,9 +298,8 @@ object IdDataExtractor {
         // Address is usually a block of text below a line containing "Address"
         val address = extractAddress(allLines)
 
-        return ExtractedDocument(
-            type = IdType.DRIVING_LICENSE,
-            idNumber = id,
+        return ExtractedDocument.DrivingLicense(
+            id = id,
             name = name,
             dob = dob,
             address = address,
