@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity() {
                                     put("name", result.name)
                                     put("dob", result.dob)
                                     put("address", result.address)
+                                    put("gender", result.gender?.name)
                                     put("isExpired", result.isExpired)
                                 }
                                 println("ocrJSON - $ocrJSON")
@@ -170,6 +171,7 @@ class MainActivity : ComponentActivity() {
                                         "Name: ${extractedDocument?.name} \n" +
                                         "DOB: ${extractedDocument?.dob} \n" +
                                         "Address: ${extractedDocument?.address} \n" +
+                                        "Gender: ${extractedDocument?.gender?.name} \n" +
                                         "Is Expired: ${if (extractedDocument?.isExpired == true) "Yes" else "No"}"
                                 AlertDialog(
                                     onDismissRequest = { extractedDocument = null },

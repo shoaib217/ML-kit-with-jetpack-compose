@@ -1,6 +1,8 @@
 package com.example.mlkitwithjetpackcompose.utility
 
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
+import com.example.mlkitwithjetpackcompose.data.Gender
+import com.example.mlkitwithjetpackcompose.data.IdType
 import com.google.mlkit.vision.text.Text
 import java.util.regex.Pattern
 
@@ -11,6 +13,7 @@ object IdDataExtractor {
     private val PAN_PATTERN = Pattern.compile("[A-Z]{5}[0-9]{4}[A-Z]{1}")
     private val AADHAAR_PATTERN = Pattern.compile("[2-9]{1}[0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}")
     private val DL_PATTERN = Pattern.compile("[A-Z]{2}[-]?[0-9]{2,3}[-]?[0-9]{4}[-]?[0-9]{7,}")
+    private val PASSPORT_PATTERN = Pattern.compile("[A-Z][0-9]{7}")
 
     private val IGNORE_HEADERS = listOf(
         "INCOME", "TAX", "DEPARTMENT", "GOVT", "INDIA", "GOVERNMENT",
@@ -34,12 +37,113 @@ object IdDataExtractor {
             IdType.PAN -> extractPanDetails(visionText)
             IdType.AADHAAR -> extractAadhaarDetails(visionText)
             IdType.DRIVING_LICENSE -> extractDlDetails(visionText)
+            IdType.PASSPORT -> extractPassportDetails(visionText)
         }
     }
+
+    private fun extractPassportDetails(text: Text): ExtractedDocument {
+        val allLines = text.textBlocks.flatMap { it.lines }
+        val rawStrings = allLines.map { it.text }
+
+        // 1. Standard Field Extraction
+        val id = findPattern(rawStrings, PASSPORT_PATTERN) ?: ""
+
+        val dates = allLines.mapNotNull { findPattern(listOf(it.text), DATE_PATTERN) }.distinct()
+        val dob = dates.minOrNull()
+        val expiryDateStr = dates.maxOrNull()
+        val isExpired = checkIfExpired(expiryDateStr)
+        val gender = detectGender(rawStrings)
+
+        // 2. NAME EXTRACTION (Vertical Anchor Strategy)
+        var surname: String? = null
+        var givenName: String? = null
+
+        allLines.forEachIndexed { index, line ->
+            val txt = line.text.uppercase()
+
+            // Find Surname and look at the line immediately following it
+            if (txt.contains("SURNAME") && index + 1 < allLines.size) {
+                val candidate = allLines[index + 1].text
+                if (isPotentialName(candidate)) {
+                    surname = candidate
+                }
+            }
+
+            // Find Given Name and look at the line immediately following it
+            if (txt.contains("GIVEN NAME") && index + 1 < allLines.size) {
+                val candidate = allLines[index + 1].text
+                if (isPotentialName(candidate)) {
+                    givenName = candidate
+                }
+            }
+        }
+
+        // 3. MRZ Fallback (Standardized format: P<IND...)
+        // This catches names if labels are blurry or misaligned
+        if (surname == null || givenName == null) {
+            val mrzLine = rawStrings.find { it.contains("P<IND", true) }
+            if (mrzLine != null) {
+                val (mrzSurname, mrzGiven) = parseMrzName(mrzLine)
+                if (surname == null) surname = mrzSurname
+                if (givenName == null) givenName = mrzGiven
+            }
+        }
+
+        val fullName = "${givenName ?: ""} ${surname ?: ""}".trim()
+
+        return ExtractedDocument(
+            type = IdType.PASSPORT,
+            idNumber = id,
+            name = if (fullName.isNotEmpty()) fullName else null,
+            dob = dob,
+            gender = gender,
+            isExpired = isExpired
+        )
+    }
+
+
+    /**
+     * Parses the Machine Readable Zone (MRZ) found at the bottom of Passports.
+     * Format: P<IND[SURNAME]<<[GIVEN<NAME]
+     */
+    private fun parseMrzName(mrz: String): Pair<String?, String?> {
+        return try {
+            // Find where the actual name starts (after P<IND or similar country code)
+            val nameData = mrz.substring(5)
+            val parts = nameData.split("<<")
+
+            val surname = parts.getOrNull(0)?.replace("<", " ")?.trim()
+            val givenName = parts.getOrNull(1)?.replace("<", " ")?.trim()
+
+            Pair(surname, givenName)
+        } catch (e: Exception) {
+            Pair(null, null)
+        }
+    }
+
+    /**
+     * Enhanced Gender Detection for all IDs
+     */
+    private fun detectGender(lines: List<String>): Gender? {
+        for (line in lines) {
+            val upper = line.uppercase()
+            when {
+                upper.contains("TRANSGENDER") -> return Gender.TRANSGENDER
+                // Checks for Female/F/F-F
+                upper.contains("FEMALE") || upper == "F" || upper == "F/F" -> return Gender.FEMALE
+                // Checks for Male/M/M-M
+                upper.contains("MALE") || upper == "M" || upper == "M/M" -> return Gender.MALE
+            }
+        }
+        return null
+    }
+
 
     private fun getDocumentType(fullText: String): IdType? {
         val upper = fullText.uppercase()
         return when {
+            // Passport detection: Usually contains "PASSPORT" or the MRZ start pattern "P<"
+            upper.contains("PASSPORT") || upper.contains("REPUBLIC OF INDIA") || fullText.contains("P<") -> IdType.PASSPORT
             PAN_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.PAN
             upper.contains("MALE") || upper.contains("FEMALE") || AADHAAR_PATTERN.matcher(upper).find() -> IdType.AADHAAR
             upper.contains("DRIVING") && DL_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.DRIVING_LICENSE
@@ -130,6 +234,7 @@ object IdDataExtractor {
     // --- AADHAAR LOGIC ---
     private fun extractAadhaarDetails(text: Text): ExtractedDocument {
         val allLines = text.textBlocks.flatMap { it.lines }
+        val rawStrings = allLines.map { it.text }
         val id = normalizeId(findPattern(allLines.map { it.text }, AADHAAR_PATTERN) ?: "").replace(" ", "")
 
         // Find the DOB line to use as a spatial anchor
@@ -140,7 +245,15 @@ object IdDataExtractor {
         val name = dobLine?.let { findTextAbove(allLines, it) } ?:
         allLines.map { it.text }.firstOrNull { isPotentialName(it) }
 
-        return ExtractedDocument(IdType.AADHAAR, id, name, dob)
+        val gender = detectGender(rawStrings)
+
+        return ExtractedDocument(
+            type = IdType.AADHAAR,
+            idNumber = id,
+            name = name,
+            dob = dob,
+            gender = gender
+        )
     }
 
     // --- DL LOGIC ---
