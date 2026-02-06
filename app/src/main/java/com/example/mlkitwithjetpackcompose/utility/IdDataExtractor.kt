@@ -3,6 +3,9 @@ package com.example.mlkitwithjetpackcompose.utility
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
 import com.example.mlkitwithjetpackcompose.data.Gender
 import com.example.mlkitwithjetpackcompose.data.IdType
+import com.example.mlkitwithjetpackcompose.utility.IdDataExtractor.AADHAAR_PATTERN
+import com.example.mlkitwithjetpackcompose.utility.IdDataExtractor.DATE_PATTERN
+import com.example.mlkitwithjetpackcompose.utility.IdDataExtractor.DL_PATTERN
 import com.google.mlkit.vision.text.Text
 import java.util.regex.Pattern
 
@@ -27,6 +30,18 @@ object IdDataExtractor {
 
     private val BLOCKLIST = listOf("SAMPLE", "SPECIMEN", "VOID", "DUMMY", "LENS", "SHARE", "STOCK")
 
+    /**
+     * Orchestrates the extraction of data from a Google ML Kit [Text] object.
+     *
+     * This function identifies the document type (PAN, Aadhaar, Driving License, or Passport)
+     * and applies specific parsing logic for each to extract fields such as ID numbers,
+     * names, dates of birth, and expiry dates. It also includes a blocklist check to
+     * avoid processing sample or specimen documents.
+     *
+     * @param visionText The structured text recognized by the ML Kit OCR engine.
+     * @return An [ExtractedDocument] containing the parsed details, or `null` if the document
+     * type cannot be determined or if the text contains blocklisted terms.
+     */
     fun extractData(visionText: Text): ExtractedDocument? {
         val fullText = visionText.text
         if (BLOCKLIST.any { fullText.uppercase().contains(it) }) return null
@@ -41,6 +56,15 @@ object IdDataExtractor {
         }
     }
 
+    /**
+     * Extracts passport details from the provided vision text using multiple strategies:
+     * 1. Regex pattern matching for standard fields like Passport Number and Dates.
+     * 2. Vertical Anchor Strategy to find Names based on "Surname" and "Given Name" labels.
+     * 3. MRZ (Machine Readable Zone) fallback for cases where field labels are blurry or missing.
+     *
+     * @param text The [Text] object containing recognized text blocks and lines from the OCR process.
+     * @return An [ExtractedDocument.Passport] object containing the ID, name, DOB, gender, and expiration status.
+     */
     private fun extractPassportDetails(text: Text): ExtractedDocument.Passport {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawStrings = allLines.map { it.text }
@@ -211,7 +235,18 @@ object IdDataExtractor {
                 !upper.contains("FATHER") // Skip "Father's Name" label
     }
 
-    // --- PAN LOGIC ---
+    /**
+     * Extracts details from a Permanent Account Number (PAN) card.
+     *
+     * This function utilizes two primary strategies to locate the holder's name:
+     * 1. **Header Strategy**: Searches for keywords like "Income Tax Department" and looks for valid name
+     *    strings in the lines immediately following.
+     * 2. **Positional Strategy**: Locates the PAN ID using a regex pattern and searches the lines
+     *    directly above it, following the standard PAN card layout (Name -> Father's Name -> DOB -> PAN).
+     *
+     * @param text The [Text] object containing blocks and lines recognized by ML Kit OCR.
+     * @return An [ExtractedDocument.Pan] object containing the identified ID, name, and date of birth.
+     */
     private fun extractPanDetails(text: Text): ExtractedDocument.Pan {
         val lines = text.textBlocks.flatMap { it.lines }
         val rawTextLines = lines.map { it.text }
@@ -230,7 +265,19 @@ object IdDataExtractor {
         return ExtractedDocument.Pan(id, name, dob)
     }
 
-    // --- AADHAAR LOGIC ---
+
+    /**
+     * Extracts Aadhaar-specific details from the provided OCR text.
+     *
+     * This function utilizes a spatial-first approach:
+     * 1. Identifies the Aadhaar Number using [AADHAAR_PATTERN].
+     * 2. Detects the "Date of Birth" (DOB) line to serve as a spatial anchor.
+     * 3. Locates the Name by searching for text blocks physically positioned above the DOB line.
+     * 4. Determines Gender by scanning for keywords like "Male" or "Female".
+     *
+     * @param text The [Text] object containing recognized text blocks and bounding boxes from ML Kit.
+     * @return An [ExtractedDocument.Aadhaar] object containing the ID, name, DOB, and gender.
+     */
     private fun extractAadhaarDetails(text: Text): ExtractedDocument.Aadhaar {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawStrings = allLines.map { it.text }
@@ -254,7 +301,23 @@ object IdDataExtractor {
         )
     }
 
-    // --- DL LOGIC ---
+
+    /**
+     * Extracts Driving License (DL) specific details from the provided [Text] object.
+     *
+     * This function implements a multi-step extraction strategy:
+     * 1. **ID Extraction:** Uses [DL_PATTERN] to find and normalize the license number.
+     * 2. **DOB Extraction:** Filters lines for date-related keywords and applies [DATE_PATTERN].
+     * 3. **Name Extraction:** First attempts to find a "Name" label; if not found, it uses
+     *    spatial context to look for text blocks below the DL number or above the DOB.
+     * 4. **Expiry Validation:** Searches for validity keywords (Valid, Until, NT) and
+     *    compares the date against the current system time.
+     * 5. **Address Extraction:** Uses spatial bounding box logic to capture address blocks
+     *    located near the "Address" anchor.
+     *
+     * @param text The [Text] object containing recognized text blocks and lines from ML Kit OCR.
+     * @return An [ExtractedDocument.DrivingLicense] containing the parsed details.
+     */
     private fun extractDlDetails(text: Text): ExtractedDocument.DrivingLicense {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawLinesStrings = allLines.map { it.text }
@@ -307,6 +370,17 @@ object IdDataExtractor {
         )
     }
 
+    /**
+     * Extracts secondary data (primarily the address) from the back side of a document.
+     *
+     * This function uses spatial analysis of text blocks to identify address fields
+     * based on common keywords. It returns a partial [ExtractedDocument] containing
+     * the address, which can later be merged with data from the front side.
+     *
+     * @param visionText The [Text] object containing OCR results from the back of the ID.
+     * @param expectedType The [IdType] of the document being processed (e.g., AADHAAR, PASSPORT).
+     * @return An [ExtractedDocument] populated with the found address, or null if no address is detected.
+     */
     fun extractBackSideData(visionText: Text, expectedType: IdType): ExtractedDocument? {
         val allLines = visionText.textBlocks.flatMap { it.lines }
 
@@ -326,6 +400,19 @@ object IdDataExtractor {
     }
 
 
+    /**
+     * Merges data extracted from the front and back sides of an ID card.
+     *
+     * This function takes two [ExtractedDocument] objects, one representing the front
+     * and one the back. It primarily aims to add the address (usually found on the back)
+     * to the more comprehensive data from the front.
+     *
+     * @param front The [ExtractedDocument] containing data from the front of the ID.
+     * @param back The [ExtractedDocument] containing data from the back of the ID (typically just the address).
+     * @return A new [ExtractedDocument] instance with the combined data. If the document types
+     *         don't have an address field or the logic isn't implemented for them, it returns the original
+     *         `front` object.
+     */
     fun mergeDetails(front: ExtractedDocument, back: ExtractedDocument): ExtractedDocument {
         return when (front) {
             is ExtractedDocument.Aadhaar -> {
