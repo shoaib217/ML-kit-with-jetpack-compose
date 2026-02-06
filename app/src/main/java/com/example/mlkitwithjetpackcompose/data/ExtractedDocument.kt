@@ -3,7 +3,13 @@ package com.example.mlkitwithjetpackcompose.data
 sealed class ExtractedDocument(val type: IdType) {
     data class Pan(val id: String, val name: String?, val dob: String?) : ExtractedDocument(IdType.PAN)
 
-    data class Aadhaar(val id: String, val name: String?, val dob: String?, val gender: Gender?) : ExtractedDocument(IdType.AADHAAR)
+    data class Aadhaar(
+        val id: String,
+        val name: String?,
+        val dob: String?,
+        val gender: Gender?,
+        val address: String? = null // Added Address
+    ) : ExtractedDocument(IdType.AADHAAR)
 
     data class DrivingLicense(
         val id: String, val name: String?, val dob: String?,
@@ -12,6 +18,7 @@ sealed class ExtractedDocument(val type: IdType) {
 
     data class Passport(
         val id: String, val name: String?, val dob: String?,
-        val gender: Gender?, val isExpired: Boolean
+        val gender: Gender?, val isExpired: Boolean,
+        val address: String? = null // Added Address
     ) : ExtractedDocument(IdType.PASSPORT)
 }

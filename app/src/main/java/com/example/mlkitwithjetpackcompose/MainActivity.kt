@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -37,6 +40,7 @@ import com.example.mlkitwithjetpackcompose.composable.CaptureIdScreen
 import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
 import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
+import com.example.mlkitwithjetpackcompose.data.IdType
 import com.example.mlkitwithjetpackcompose.ui.theme.MLkitWithJetpackComposeTheme
 import org.json.JSONObject
 import org.opencv.android.OpenCVLoader
@@ -148,55 +152,112 @@ class MainActivity : ComponentActivity() {
                             DocumentScannerScreen(mainActivity = this@MainActivity)
                         }
                         composable(DOCUMENT_DETECTION) {
+                            var expanded by remember { mutableStateOf(false) }
+                            var selectedIdType by remember { mutableStateOf(IdType.AADHAAR) }
+                            var showCamera by remember { mutableStateOf(false) }
                             var extractedDocument by remember { mutableStateOf<ExtractedDocument?>(null) }
 
-                            CaptureIdScreen(onIdVerified = { result ->
-                                // 1. Create JSON using the safe sealed class properties
-                                val ocrJSON = JSONObject().apply {
-                                    put("type", result.type.name)
+                            if (!showCamera) {
+                                // 2. Selection UI
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Select ID Type to Verify",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        modifier = Modifier.padding(bottom = 16.dp)
+                                    )
 
-                                    // Accessing common properties directly from the sealed class base/wrappers
-                                    // (Note: Since we used a sealed class, we handle specific fields inside a when or via cast)
-                                    when (result) {
-                                        is ExtractedDocument.Aadhaar -> {
-                                            put("idNumber", result.id)
-                                            put("name", result.name)
-                                            put("dob", result.dob)
-                                            put("gender", result.gender?.name)
-                                            put("address", null)
-                                            put("isExpired", false)
-                                        }
-                                        is ExtractedDocument.DrivingLicense -> {
-                                            put("idNumber", result.id)
-                                            put("name", result.name)
-                                            put("dob", result.dob)
-                                            put("address", result.address)
-                                            put("isExpired", result.isExpired)
-                                            put("gender", null)
-                                        }
-                                        is ExtractedDocument.Pan -> {
-                                            put("idNumber", result.id)
-                                            put("name", result.name)
-                                            put("dob", result.dob)
-                                            put("address", null)
-                                            put("gender", null)
-                                            put("isExpired", false)
-                                        }
-                                        is ExtractedDocument.Passport -> {
-                                            put("idNumber", result.id)
-                                            put("name", result.name)
-                                            put("dob", result.dob)
-                                            put("gender", result.gender?.name)
-                                            put("isExpired", result.isExpired)
-                                            put("address", null)
+                                    // Material 3 Dropdown
+                                    ExposedDropdownMenuBox(
+                                        expanded = expanded,
+                                        onExpandedChange = { expanded = !expanded }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = selectedIdType.name,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("ID Type") },
+                                            trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                                            modifier = Modifier.menuAnchor()
+                                        )
+
+                                        ExposedDropdownMenu(
+                                            expanded = expanded,
+                                            onDismissRequest = { expanded = false }
+                                        ) {
+                                            IdType.entries.forEach { idType ->
+                                                androidx.compose.material3.DropdownMenuItem(
+                                                    text = { Text(idType.name) },
+                                                    onClick = {
+                                                        selectedIdType = idType
+                                                        expanded = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
+
+                                    FilledTonalButton(
+                                        onClick = { showCamera = true },
+                                        modifier = Modifier.padding(top = 24.dp)
+                                    ) {
+                                        Text("Start Verification")
+                                    }
                                 }
+                            } else {
+                                CaptureIdScreen(requiredIdType = selectedIdType,onIdVerified = { result ->
+                                    // 1. Create JSON using the safe sealed class properties
+                                    val ocrJSON = JSONObject().apply {
+                                        put("type", result.type.name)
 
-                                println("ocrJSON - $ocrJSON")
-                                extractedDocument = result
-                            })
+                                        // Accessing common properties directly from the sealed class base/wrappers
+                                        // (Note: Since we used a sealed class, we handle specific fields inside a when or via cast)
+                                        when (result) {
+                                            is ExtractedDocument.Aadhaar -> {
+                                                put("idNumber", result.id)
+                                                put("name", result.name)
+                                                put("dob", result.dob)
+                                                put("gender", result.gender?.name)
+                                                put("address", result.address)
+                                                put("isExpired", false)
+                                            }
+                                            is ExtractedDocument.DrivingLicense -> {
+                                                put("idNumber", result.id)
+                                                put("name", result.name)
+                                                put("dob", result.dob)
+                                                put("address", result.address)
+                                                put("isExpired", result.isExpired)
+                                                put("gender", null)
+                                            }
+                                            is ExtractedDocument.Pan -> {
+                                                put("idNumber", result.id)
+                                                put("name", result.name)
+                                                put("dob", result.dob)
+                                                put("address", null)
+                                                put("gender", null)
+                                                put("isExpired", false)
+                                            }
+                                            is ExtractedDocument.Passport -> {
+                                                put("idNumber", result.id)
+                                                put("name", result.name)
+                                                put("dob", result.dob)
+                                                put("gender", result.gender?.name)
+                                                put("isExpired", result.isExpired)
+                                                put("address", result.address)
+                                            }
+                                        }
+                                    }
 
+                                    println("ocrJSON - $ocrJSON")
+                                    extractedDocument = result
+                                })
+
+                            }
                             // 2. Display Dialog with dynamic data based on the Sealed Class type
                             extractedDocument?.let { doc ->
                                 AlertDialog(
@@ -235,9 +296,11 @@ private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
         // Specific fields
         when (doc) {
             is ExtractedDocument.Aadhaar -> {
+                doc.address?.let { append("Address: $it\n") }
                 doc.gender?.let { append("Gender: ${it.name}\n") }
             }
             is ExtractedDocument.Passport -> {
+                doc.address?.let { append("Address: $it\n") }
                 doc.gender?.let { append("Gender: ${it.name}\n") }
                 append("Expired: ${if (doc.isExpired) "Yes" else "No"}")
             }

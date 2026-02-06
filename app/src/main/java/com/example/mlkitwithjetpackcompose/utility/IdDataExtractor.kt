@@ -307,6 +307,40 @@ object IdDataExtractor {
         )
     }
 
+    fun extractBackSideData(visionText: Text, expectedType: IdType): ExtractedDocument? {
+        val allLines = visionText.textBlocks.flatMap { it.lines }
+
+        // Try to find an address
+        val address = extractAddress(allLines)
+
+        if (address.isNullOrEmpty()) return null
+
+        // Return a partial document with just the address
+        return when (expectedType) {
+            IdType.AADHAAR -> ExtractedDocument.Aadhaar(id = "", name = null, dob = null, gender = null, address = address)
+            IdType.PASSPORT -> ExtractedDocument.Passport(id = "", name = null, dob = null, gender = null, isExpired = false, address = address)
+            // DL/PAN don't usually use this flow, but just in case:
+            IdType.DRIVING_LICENSE -> ExtractedDocument.DrivingLicense(id = "", name = null, dob = null, address = address, isExpired = false)
+            else -> null
+        }
+    }
+
+
+    fun mergeDetails(front: ExtractedDocument, back: ExtractedDocument): ExtractedDocument {
+        return when (front) {
+            is ExtractedDocument.Aadhaar -> {
+                val backDoc = back as? ExtractedDocument.Aadhaar
+                front.copy(address = backDoc?.address) // Add address to front data
+            }
+            is ExtractedDocument.Passport -> {
+                val backDoc = back as? ExtractedDocument.Passport
+                front.copy(address = backDoc?.address) // Add address to front data
+            }
+            // Logic for others if needed
+            else -> front
+        }
+    }
+
     private fun findDlNameByContext(lines: List<Text.Line>, dlNumber: String): String? {
         // Find the index of the line containing the DL Number
         val dlIndex = lines.indexOfFirst {

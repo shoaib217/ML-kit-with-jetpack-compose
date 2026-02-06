@@ -15,9 +15,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -29,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,49 +45,58 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
+import com.example.mlkitwithjetpackcompose.data.IdType
 import com.example.mlkitwithjetpackcompose.utility.IdDataExtractor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.Executors
 
+
+enum class CaptureStep { FRONT, BACK }
+
 @Composable
-fun CaptureIdScreen(onIdVerified: (ExtractedDocument) -> Unit) {
+fun CaptureIdScreen(
+    requiredIdType: IdType, // Pass the type you want to scan (e.g., IdType.AADHAAR)
+    onIdVerified: (ExtractedDocument) -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    
-    // UI States
+
+    // --- State Management ---
     var isProcessing by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
-    var isFlashOn by remember { mutableStateOf(false) } // New state for Flash
-
+    var isFlashOn by remember { mutableStateOf(false) }
     var cameraControl by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
 
-   // Camera References
+    // Multi-Step State
+    // Determine if this ID needs two steps
+    val isMultiStep = remember(requiredIdType) {
+        requiredIdType == IdType.AADHAAR || requiredIdType == IdType.PASSPORT
+    }
+    var currentStep by remember { mutableStateOf(CaptureStep.FRONT) }
+    var frontResult by remember { mutableStateOf<ExtractedDocument?>(null) }
+
     val imageCapture = remember {
         ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setResolutionSelector(
                 ResolutionSelector.Builder()
-                    .setResolutionStrategy(
-                        ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY
-                    )
+                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
                     .build()
             )
             .build()
     }
 
+    // Flash Logic
     LaunchedEffect(isFlashOn) {
-        imageCapture.flashMode = if (isFlashOn) {
-            ImageCapture.FLASH_MODE_ON
-        } else {
-            ImageCapture.FLASH_MODE_OFF
-        }
+        imageCapture.flashMode = if (isFlashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
         cameraControl?.enableTorch(isFlashOn)
     }
 
@@ -106,71 +114,100 @@ fun CaptureIdScreen(onIdVerified: (ExtractedDocument) -> Unit) {
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                 }
-                
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-
+                    val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                     try {
                         cameraProvider.unbindAll()
                         val camera = cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview,
-                            imageCapture // Bind Capture instead of Analysis
+                            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture
                         )
-
                         cameraControl = camera.cameraControl
-                    } catch (e: Exception) {
-                        Log.e("Camera", "Bind failed", e)
-                    }
+                    } catch (e: Exception) { Log.e("Camera", "Bind failed", e) }
                 }, executor)
                 previewView
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Overlay Guide (Hole in the screen)
+        // 2. Overlay & Instructions
         ScannerOverlay()
 
+        // Instruction Text
+        Column(
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val title = if (isMultiStep && currentStep == CaptureStep.BACK) {
+                "Scan BACK of ${requiredIdType.name}"
+            } else {
+                "Scan FRONT of ${requiredIdType.name}"
+            }
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (frontResult != null) {
+                Text(
+                    text = "✓ Front Captured",
+                    color = Color.Green,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+
+        // Flash Button
         IconButton(
             onClick = { isFlashOn = !isFlashOn },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 40.dp, end = 20.dp)
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 20.dp)
         ) {
             Icon(
                 imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                contentDescription = "Toggle Flash",
+                contentDescription = "Flash",
                 tint = if (isFlashOn) Color.Yellow else Color.White,
                 modifier = Modifier.size(32.dp)
             )
         }
 
-        // 3. Controls
+        // 3. Capture Button & Logic
         Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 40.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (isProcessing) {
                 CircularProgressIndicator(color = Color.White)
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Validating Document...", color = Color.White)
+                Text("Processing...", color = Color.White, modifier = Modifier.padding(top = 8.dp))
             } else {
                 FloatingActionButton(
                     onClick = {
                         isProcessing = true
-                        captureAndValidate(
-                            imageCapture, 
-                            cameraExecutor, 
-                            onSuccess = { result ->
+                        captureAndProcess(
+                            imageCapture = imageCapture,
+                            executor = cameraExecutor,
+                            requiredType = requiredIdType,
+                            isBackSide = currentStep == CaptureStep.BACK,
+                            onResult = { result ->
                                 isProcessing = false
-                                onIdVerified(result)
+
+                                if (isMultiStep) {
+                                    if (currentStep == CaptureStep.FRONT) {
+                                        // Store front result and move to back
+                                        frontResult = result
+                                        currentStep = CaptureStep.BACK
+                                    } else {
+                                        // Merge front + back and finish
+                                        val mergedDoc = IdDataExtractor.mergeDetails(frontResult!!, result)
+                                        onIdVerified(mergedDoc)
+                                    }
+                                } else {
+                                    // Single step (PAN/DL)
+                                    onIdVerified(result)
+                                }
                             },
                             onError = { error ->
                                 isProcessing = false
@@ -179,27 +216,76 @@ fun CaptureIdScreen(onIdVerified: (ExtractedDocument) -> Unit) {
                         )
                     },
                     containerColor = Color.White,
-                    contentColor = Color.Black,
                     modifier = Modifier.size(72.dp)
-                ) {
-                    Icon(Icons.Default.Camera, contentDescription = "Camera")
-                }
+                ) { Icon(Icons.Default.Camera, contentDescription = "Capture") }
             }
         }
 
-        // 4. Error Feedback Dialog
+        // Error Dialog
         if (captureError != null) {
             AlertDialog(
                 onDismissRequest = { captureError = null },
-                confirmButton = {
-                    TextButton(onClick = { captureError = null }) { Text("Retry") }
-                },
-                title = { Text("Validation Failed") },
+                confirmButton = { TextButton(onClick = { captureError = null }) { Text("Retry") } },
+                title = { Text("Scan Failed") },
                 text = { Text(captureError!!) }
             )
         }
     }
 }
+
+private fun captureAndProcess(
+    imageCapture: ImageCapture,
+    executor: java.util.concurrent.Executor,
+    requiredType: IdType,
+    isBackSide: Boolean,
+    onResult: (ExtractedDocument) -> Unit,
+    onError: (String) -> Unit
+) {
+    imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
+        @androidx.annotation.OptIn(ExperimentalGetImage::class)
+        override fun onCaptureSuccess(imageProxy: ImageProxy) {
+            val mediaImage = imageProxy.image
+            if (mediaImage != null) {
+                val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+                recognizer.process(image)
+                    .addOnSuccessListener { visionText ->
+                        // 1. Back Side Logic (Focus on Address)
+                        if (isBackSide) {
+                            val backResult = IdDataExtractor.extractBackSideData(visionText, requiredType)
+                            if (backResult != null) {
+                                onResult(backResult)
+                            } else {
+                                onError("Could not detect Address on the back side. Please ensure text is clear.")
+                            }
+                        }
+                        // 2. Front Side / Single Doc Logic (Full Extraction)
+                        else {
+                            val result = IdDataExtractor.extractData(visionText)
+
+                            if (result == null) {
+                                onError("No valid ID detected. Please try again.")
+                            } else if (result.type != requiredType) {
+                                onError("Incorrect ID Type detected. Expected ${requiredType.name} but found ${result.type.name}.")
+                            } else {
+                                onResult(result)
+                            }
+                        }
+                    }
+                    .addOnFailureListener { onError(it.localizedMessage ?: "OCR Failed") }
+                    .addOnCompleteListener { imageProxy.close() }
+            } else {
+                imageProxy.close()
+                onError("Image capture failed")
+            }
+        }
+        override fun onError(e: ImageCaptureException) {
+            onError("Camera Error: ${e.message}")
+        }
+    })
+}
+
 
 // Logic to Capture -> Process -> Validate
 private fun captureAndValidate(
