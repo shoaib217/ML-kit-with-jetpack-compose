@@ -20,7 +20,7 @@ object IdDataExtractor {
 
     private val IGNORE_HEADERS = listOf(
         "INCOME", "TAX", "DEPARTMENT", "GOVT", "INDIA", "GOVERNMENT",
-        "MALE", "FEMALE", "DOB", "YEAR", "BIRTH", "ACCOUNT", "NUMBER", "FATHER"
+        "MALE", "FEMALE", "DOB", "YEAR", "BIRTH", "ACCOUNT", "NUMBER", "FATHER","ADDRESS"
     )
 
     private val DL_JUNK_WORDS = listOf(
@@ -392,11 +392,82 @@ object IdDataExtractor {
         // Return a partial document with just the address
         return when (expectedType) {
             IdType.AADHAAR -> ExtractedDocument.Aadhaar(id = "", name = null, dob = null, gender = null, address = address)
-            IdType.PASSPORT -> ExtractedDocument.Passport(id = "", name = null, dob = null, gender = null, isExpired = false, address = address)
+            IdType.PASSPORT -> {
+                val fatherName = findPassportRelationName(allLines, "FATHER")
+                val motherName = findPassportRelationName(allLines, "MOTHER")
+
+                // Special handling for Spouse to allow blank
+                val rawSpouse = findPassportRelationName(allLines, "SPOUSE")
+                val spouseName = if (rawSpouse != null && !rawSpouse.uppercase().contains("ADDRESS")) {
+                    rawSpouse
+                } else {
+                    null
+                }
+
+                ExtractedDocument.Passport(
+                    id = "",
+                    name = null,
+                    dob = null,
+                    gender = null,
+                    isExpired = false,
+                    address = address,
+                    fatherName = fatherName,
+                    motherName = motherName,
+                    spouseName = spouseName,
+                )
+            }
             // DL/PAN don't usually use this flow, but just in case:
             IdType.DRIVING_LICENSE -> ExtractedDocument.DrivingLicense(id = "", name = null, dob = null, address = address, isExpired = false)
             else -> null
         }
+    }
+
+    private fun findPassportRelationName(allLines: List<Text.Line>, labelKeyword: String): String? {
+        // 1. Find the header line
+        val headerIndex = allLines.indexOfFirst {
+            val txt = it.text.uppercase()
+            txt.contains(labelKeyword) && (txt.contains("NAME") || txt.contains("OF"))
+        }
+
+        if (headerIndex == -1) return null
+        val headerLine = allLines[headerIndex]
+
+        // 2. Look at the next 2 lines (to account for small labels like "(Surname)")
+        for (i in 1..2) {
+            if (headerIndex + i >= allLines.size) break
+            val candidateLine = allLines[headerIndex + i]
+            val candidateText = candidateLine.text.trim()
+
+            // Validation Logic
+            if (isValidNameValue(candidateText)) {
+                // Check if this candidate is physically below the header
+                val headerBox = headerLine.boundingBox ?: continue
+                val candidateBox = candidateLine.boundingBox ?: continue
+
+                // If the candidate's top is below the header's bottom, it's our value
+                if (candidateBox.top >= headerBox.top) {
+                    return candidateText
+                }
+            }
+        }
+        return null
+    }
+
+
+    // Helper to ensure we don't accidentally grab "Address" or "File No" as a name
+    private fun isValidNameValue(text: String): Boolean {
+        val upper = text.uppercase().trim()
+
+        // List of words that are definitely NOT names
+        val invalidWords = listOf(
+            "NAME", "FATHER", "MOTHER", "SPOUSE", "ADDRESS",
+            "FILE", "PASSPORT", "SURNAME", "GIVEN", "INDIA"
+        )
+
+        return text.length >= 2 &&
+                !invalidWords.any { upper.contains(it) } &&
+                !text.any { it.isDigit() } &&
+                !upper.startsWith("FILE NO")
     }
 
 
@@ -421,7 +492,7 @@ object IdDataExtractor {
             }
             is ExtractedDocument.Passport -> {
                 val backDoc = back as? ExtractedDocument.Passport
-                front.copy(address = backDoc?.address) // Add address to front data
+                front.copy(address = backDoc?.address, fatherName = backDoc?.fatherName, motherName = backDoc?.motherName, spouseName = backDoc?.spouseName) // Add address to front data
             }
             // Logic for others if needed
             else -> front

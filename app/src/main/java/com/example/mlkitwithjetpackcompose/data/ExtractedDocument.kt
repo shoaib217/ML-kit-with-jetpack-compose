@@ -19,6 +19,9 @@ sealed class ExtractedDocument(val type: IdType) {
     data class Passport(
         val id: String, val name: String?, val dob: String?,
         val gender: Gender?, val isExpired: Boolean,
-        val address: String? = null // Added Address
+        val address: String? = null, // Added Address
+        val fatherName: String? = null,
+        val motherName: String? = null,
+        val spouseName: String? = null,
     ) : ExtractedDocument(IdType.PASSPORT)
 }

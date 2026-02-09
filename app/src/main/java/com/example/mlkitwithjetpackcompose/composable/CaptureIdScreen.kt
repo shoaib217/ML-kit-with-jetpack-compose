@@ -251,6 +251,7 @@ private fun captureAndProcess(
 
                 recognizer.process(image)
                     .addOnSuccessListener { visionText ->
+                        Log.d("TAG", "visionText: ${visionText.text}")
                         // 1. Back Side Logic (Focus on Address)
                         if (isBackSide) {
                             val backResult = IdDataExtractor.extractBackSideData(visionText, requiredType)

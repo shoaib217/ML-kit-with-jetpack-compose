@@ -302,6 +302,9 @@ private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
             is ExtractedDocument.Passport -> {
                 doc.address?.let { append("Address: $it\n") }
                 doc.gender?.let { append("Gender: ${it.name}\n") }
+                doc.fatherName?.let { append("Father Name: ${it}\n") }
+                doc.motherName?.let { append("Mother Name: ${it}\n") }
+                doc.spouseName?.let { append("Spouse Name: ${it}\n") }
                 append("Expired: ${if (doc.isExpired) "Yes" else "No"}")
             }
             is ExtractedDocument.DrivingLicense -> {
