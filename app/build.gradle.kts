@@ -91,4 +91,11 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
 
     implementation(libs.object1.detection)
+    // 1. ML Kit for Face Detection (Finds the face)
+    implementation(libs.face.detection)
+
+    // 2. TensorFlow Lite for Face Recognition (Compares the faces)
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.support)
+    implementation(libs.tensorflow.lite.gpu) // Optional acceleration
 }

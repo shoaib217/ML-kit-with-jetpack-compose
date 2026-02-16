@@ -1,6 +1,7 @@
 [versions]
 agp = "8.13.2"
 coil = "2.7.0"
+faceDetection = "16.1.7"
 kotlin = "2.2.21"
 coreKtx = "1.17.0"
 junit = "4.13.2"
@@ -14,6 +15,9 @@ objectDetection = "17.0.2"
 playServicesLocation = "21.3.0"
 playServicesMlkitDocumentScanner = "16.0.0"
 playServicesMlkitTextRecognitionDevanagari = "16.0.1"
+tensorflowLite = "2.17.0"
+tensorflowLiteGpu = "2.17.0"
+tensorflowLiteSupport = "0.5.0"
 textRecognitionDevanagari = "16.0.1"
 navVersion = "2.9.6"
 cameraXVerion = "1.5.3"
@@ -23,6 +27,7 @@ objectDetectionCustom = "17.0.2"
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+face-detection = { module = "com.google.mlkit:face-detection", version.ref = "faceDetection" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
@@ -41,6 +46,9 @@ object1-detection = { module = "com.google.mlkit:object-detection", version.ref 
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 play-services-mlkit-document-scanner = { module = "com.google.android.gms:play-services-mlkit-document-scanner", version.ref = "playServicesMlkitDocumentScanner" }
 play-services-mlkit-text-recognition = { module = "com.google.android.gms:play-services-mlkit-text-recognition", version.ref = "playServicesMlkitTextRecognitionDevanagari" }
+tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
+tensorflow-lite-gpu = { module = "org.tensorflow:tensorflow-lite-gpu", version.ref = "tensorflowLiteGpu" }
+tensorflow-lite-support = { module = "org.tensorflow:tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
 text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "textRecognitionDevanagari" }
 navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navVersion" }
 

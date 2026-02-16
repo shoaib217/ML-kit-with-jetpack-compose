@@ -1,5 +1,7 @@
 package com.example.mlkitwithjetpackcompose.composable
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.util.Log
 import android.view.ViewGroup
 import androidx.camera.core.CameraSelector
@@ -56,6 +58,8 @@ import com.example.mlkitwithjetpackcompose.utility.IdDataExtractor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 
@@ -136,7 +140,9 @@ fun CaptureIdScreen(
 
         // Instruction Text
         Column(
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 60.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val title = if (isMultiStep && currentStep == CaptureStep.BACK) {
@@ -164,7 +170,9 @@ fun CaptureIdScreen(
         // Flash Button
         IconButton(
             onClick = { isFlashOn = !isFlashOn },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 20.dp)
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 40.dp, end = 20.dp)
         ) {
             Icon(
                 imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
@@ -176,7 +184,9 @@ fun CaptureIdScreen(
 
         // 3. Capture Button & Logic
         Column(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (isProcessing) {
@@ -187,26 +197,44 @@ fun CaptureIdScreen(
                     onClick = {
                         isProcessing = true
                         captureAndProcess(
+                            context = context,
                             imageCapture = imageCapture,
                             executor = cameraExecutor,
                             requiredType = requiredIdType,
                             isBackSide = currentStep == CaptureStep.BACK,
-                            onResult = { result ->
+                            onResult = { result, uri->
                                 isProcessing = false
+
+                                val resultWithImage = when(result) {
+                                    is ExtractedDocument.Aadhaar -> {
+                                        when(currentStep) {
+                                            CaptureStep.FRONT -> result.copy(frontImageUri = uri)
+                                            CaptureStep.BACK -> result.copy(backImageUri = uri)
+                                        }
+                                    }
+                                    is ExtractedDocument.Passport -> {
+                                        when(currentStep) {
+                                            CaptureStep.FRONT -> result.copy(frontImageUri = uri)
+                                            CaptureStep.BACK -> result.copy(backImageUri = uri)
+                                        }
+                                    }
+                                    is ExtractedDocument.Pan -> result.copy(imageUri = uri)
+                                    is ExtractedDocument.DrivingLicense -> result.copy(imageUri = uri)
+                                }
 
                                 if (isMultiStep) {
                                     if (currentStep == CaptureStep.FRONT) {
                                         // Store front result and move to back
-                                        frontResult = result
+                                        frontResult = resultWithImage
                                         currentStep = CaptureStep.BACK
                                     } else {
                                         // Merge front + back and finish
-                                        val mergedDoc = IdDataExtractor.mergeDetails(frontResult!!, result)
+                                        val mergedDoc = IdDataExtractor.mergeDetails(frontResult!!, resultWithImage)
                                         onIdVerified(mergedDoc)
                                     }
                                 } else {
                                     // Single step (PAN/DL)
-                                    onIdVerified(result)
+                                    onIdVerified(resultWithImage)
                                 }
                             },
                             onError = { error ->
@@ -234,11 +262,12 @@ fun CaptureIdScreen(
 }
 
 private fun captureAndProcess(
+    context: Context,
     imageCapture: ImageCapture,
     executor: java.util.concurrent.Executor,
     requiredType: IdType,
     isBackSide: Boolean,
-    onResult: (ExtractedDocument) -> Unit,
+    onResult: (ExtractedDocument, String) -> Unit, // Return both doc and URI
     onError: (String) -> Unit
 ) {
     imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
@@ -251,12 +280,35 @@ private fun captureAndProcess(
 
                 recognizer.process(image)
                     .addOnSuccessListener { visionText ->
+                        val bitmap = imageProxy.toBitmap() 
+                        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+                        
+                        val matrix = android.graphics.Matrix().apply {
+                            postRotate(rotationDegrees.toFloat())
+                        }
+
+                        val rotatedBitmap = android.graphics.Bitmap.createBitmap(
+                            bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                        )
+                        
+                        val fileName = "ID_${System.currentTimeMillis()}.jpg"
+                        val file = File(context.filesDir, fileName)
+                        try {
+                            FileOutputStream(file).use { out ->
+                                rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                            }
+                        } catch (e: Exception) {
+                            onError("Failed to save image")
+                            return@addOnSuccessListener
+                        }
+                        val savedUri = file.absolutePath
+
                         Log.d("TAG", "visionText: ${visionText.text}")
                         // 1. Back Side Logic (Focus on Address)
                         if (isBackSide) {
                             val backResult = IdDataExtractor.extractBackSideData(visionText, requiredType)
                             if (backResult != null) {
-                                onResult(backResult)
+                                onResult(backResult,savedUri)
                             } else {
                                 onError("Could not detect Address on the back side. Please ensure text is clear.")
                             }
@@ -270,7 +322,7 @@ private fun captureAndProcess(
                             } else if (result.type != requiredType) {
                                 onError("Incorrect ID Type detected. Expected ${requiredType.name} but found ${result.type.name}.")
                             } else {
-                                onResult(result)
+                                onResult(result,savedUri)
                             }
                         }
                     }

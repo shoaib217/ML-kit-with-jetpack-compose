@@ -2,6 +2,7 @@ package com.example.mlkitwithjetpackcompose
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -9,11 +10,24 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.FilledTonalButton
@@ -25,23 +39,31 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import coil.compose.AsyncImage
 import com.example.mlkitwithjetpackcompose.composable.CaptureIdScreen
 import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
 import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
+import com.example.mlkitwithjetpackcompose.data.ExtractedDocumentData
 import com.example.mlkitwithjetpackcompose.data.IdType
 import com.example.mlkitwithjetpackcompose.ui.theme.MLkitWithJetpackComposeTheme
+import com.example.mlkitwithjetpackcompose.utility.DocumentMatcher
 import org.json.JSONObject
 import org.opencv.android.OpenCVLoader
 
@@ -128,12 +150,14 @@ class MainActivity : ComponentActivity() {
         ))
 
 
+
         setContent {
             MLkitWithJetpackComposeTheme {
                 val navController = rememberNavController()
                 Scaffold(topBar = {
                     TopAppBar(title = { Text(text = "ML Kit Demo") })
                 }, containerColor = MaterialTheme.colorScheme.background) {
+                    val listOfExtractedDocumentData = remember { mutableStateListOf<ExtractedDocumentData>() }
                     NavHost(
                         navController = navController,
                         startDestination = MAIN_SCREEN,
@@ -142,7 +166,7 @@ class MainActivity : ComponentActivity() {
                             .padding(it)
                     ) {
                         composable(MAIN_SCREEN) {
-                            MainScreen(navController)
+                            MainScreen(navController,listOfExtractedDocumentData)
                         }
                         composable(TEXT_RECOGNITION_SCREEN) {
                             TextRecognitionScreen()
@@ -225,6 +249,7 @@ class MainActivity : ComponentActivity() {
                                                 put("gender", result.gender?.name)
                                                 put("address", result.address)
                                                 put("isExpired", false)
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
                                             }
                                             is ExtractedDocument.DrivingLicense -> {
                                                 put("idNumber", result.id)
@@ -233,6 +258,8 @@ class MainActivity : ComponentActivity() {
                                                 put("address", result.address)
                                                 put("isExpired", result.isExpired)
                                                 put("gender", null)
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = result.address,imageUri = result.imageUri))
+
                                             }
                                             is ExtractedDocument.Pan -> {
                                                 put("idNumber", result.id)
@@ -241,6 +268,8 @@ class MainActivity : ComponentActivity() {
                                                 put("address", null)
                                                 put("gender", null)
                                                 put("isExpired", false)
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = null,imageUri = result.imageUri))
+
                                             }
                                             is ExtractedDocument.Passport -> {
                                                 put("idNumber", result.id)
@@ -249,6 +278,8 @@ class MainActivity : ComponentActivity() {
                                                 put("gender", result.gender?.name)
                                                 put("isExpired", result.isExpired)
                                                 put("address", result.address)
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
+
                                             }
                                         }
                                     }
@@ -319,12 +350,157 @@ private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
 }
 
 @Composable
-fun MainScreen(navController: NavHostController) {
+fun MainScreen(
+    navController: NavHostController,
+    listOfExtractedDocumentData: SnapshotStateList<ExtractedDocumentData>,
+) {
     Column(
         verticalArrangement = Arrangement.SpaceEvenly,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        FilledTonalButton(onClick = { navController.navigate(MainActivity.TEXT_RECOGNITION_SCREEN) }) {
+        val context = LocalContext.current
+        /*if (listOfExtractedDocumentData.size == 2) {
+            FilledTonalButton(onClick = {
+                DocumentMatcher.calculateTotalMatch(listOfExtractedDocumentData[0],
+                    BitmapFactory.decodeFile(listOfExtractedDocumentData[0].imageUri),
+                    listOfExtractedDocumentData[1],
+                    BitmapFactory.decodeFile(listOfExtractedDocumentData[1].imageUri),
+                    context,
+                    onComplete = {
+                        Log.d("TAG", "MainScreen: $it")
+                    })
+            }) {
+                Text(text = "Compare Document")
+            }
+        }*/
+
+
+        // Track selected items by index
+        var selectedIndices by remember { mutableStateOf(setOf<Int>()) }
+        var comparisonResult by remember { mutableStateOf<DocumentMatcher.MatchResult?>(null) }
+        var isComparing by remember { mutableStateOf(false) }
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Verified Documents (${selectedIndices.size}/2 selected)",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(16.dp)
+            )
+
+            // 1. List View of Extracted Documents
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(listOfExtractedDocumentData) { index, doc ->
+                    val isSelected = selectedIndices.contains(index)
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedIndices = if (isSelected) {
+                                    selectedIndices - index
+                                } else if (selectedIndices.size < 2) {
+                                    selectedIndices + index
+                                } else {
+                                    selectedIndices
+                                }
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Document Image using Coil
+                            AsyncImage(
+                                model = doc.imageUri,
+                                contentDescription = "Document Thumbnail",
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+
+                            Column(modifier = Modifier.padding(start = 16.dp)) {
+                                Text(text = doc.name ?: "Unknown Name", style = MaterialTheme.typography.titleMedium)
+                                Text(text = "DOB: ${doc.dob ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
+                                // Assuming IdType is part of doc or can be inferred
+                                Text(
+                                    text = "Pincode: ${doc.address?.takeLast(6) ?: "N/A"}",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Navigation & Compare Actions
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Button(onClick = { navController.navigate(MainActivity.DOCUMENT_DETECTION) }) {
+                    Text(text = "Add New ID")
+                }
+
+                // Show compare only when exactly 2 are selected
+                if (selectedIndices.size == 2) {
+                    Button(
+                        onClick = {
+                            val indices = selectedIndices.toList()
+                            val doc1 = listOfExtractedDocumentData[indices[0]]
+                            val doc2 = listOfExtractedDocumentData[indices[1]]
+
+                            println("doc1 - $doc1")
+                            println("doc2 - $doc2")
+                            isComparing = true
+                            DocumentMatcher.calculateTotalMatch(
+                                doc1,
+                                BitmapFactory.decodeFile(doc1.imageUri),
+                                doc2,
+                                BitmapFactory.decodeFile(doc2.imageUri),
+                                context,
+                                onComplete = { result ->
+                                    comparisonResult = result
+                                    isComparing = false
+                                }
+                            )
+                        },
+                        enabled = !isComparing
+                    ) {
+                        if (isComparing) CircularProgressIndicator()
+                        else Text(text = "Compare Selection")
+                    }
+                }
+            }
+        }
+
+        // 3. Match Result Dialog
+        comparisonResult?.let { result ->
+            println("match result - $result")
+            AlertDialog(
+                onDismissRequest = { comparisonResult = null },
+                title = { Text("Comparison Result") },
+                text = { Text(buildMatchResultString(result)) },
+                confirmButton = {
+                    TextButton(onClick = { comparisonResult = null }) { Text("Close") }
+                }
+            )
+        }
+
+       /* FilledTonalButton(onClick = { navController.navigate(MainActivity.TEXT_RECOGNITION_SCREEN) }) {
             Text(text = "Go to Text Recognition Screen")
         }
         FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_SCANNER_SCREEN) }) {
@@ -333,5 +509,22 @@ fun MainScreen(navController: NavHostController) {
         FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_DETECTION) }) {
             Text(text = "Go to Document verification")
         }
+
+        */
+
+    }
+}
+
+private fun buildMatchResultString(doc: DocumentMatcher.MatchResult): String {
+    return buildString {
+        // Common fields for all IDs
+        append("Verification Results:\n")
+        append("Name Match: ${doc.nameMatch}\n")
+        append("DOB Match: ${doc.dobMatch}\n")
+        append("Address Match: ${doc.addressMatch}\n")
+        append("Face Match: ${doc.faceMatch}\n")
+        append("Final Score: ${doc.finalScore}\n")
+        append("Is Verified: ${if (doc.isVerified) "Yes" else "No"}\n")
+
     }
 }
