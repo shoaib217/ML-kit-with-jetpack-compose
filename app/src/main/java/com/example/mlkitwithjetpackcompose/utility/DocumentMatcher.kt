@@ -37,54 +37,20 @@ object DocumentMatcher {
         // 2. Calculate Face Score (Async AI)
         val faceProcessor = FaceRecognitionProcessor(context)
         
-        faceProcessor.compareFaces(img1, img2) { similarity ->
-            // Convert 0.0-1.0 similarity to 0-100 score
-            // Threshold: 0.75 similarity is usually a good "pass" for beard/age diffs
-            val facePercentage = (similarity * 100).toInt().coerceIn(0, 100)
-
-            // Adjust curve: Make >80% easier to reach if similarity is > 0.7
-            /*val adjustedFaceScore = if (similarity > 0.7) {
-                80 + ((similarity - 0.7) * (20 / 0.3)).toInt() // Map 0.7-1.0 to 80-100
-            } else {
-                (similarity * 100).toInt()
-            }*/
-
-            println("similarity $similarity")
-            val adjustedFaceScore = when {
-                // 1. Highly likely the same person (0.75 - 1.0) -> Score 90-100%
-                similarity >= 0.75f -> {
-                    90 + ((similarity - 0.75f) * (10 / 0.25f)).toInt()
-                }
-
-                // 2. Age/Beard Zone (0.60 - 0.75) -> Map to 80-90%
-                // This is where most aging/beard cases fall. We "boost" these scores.
-                similarity >= 0.60f -> {
-                    80 + ((similarity - 0.60f) * (10 / 0.15f)).toInt()
-                }
-
-                // 3. Uncertain Zone (0.45 - 0.60) -> Map to 50-80%
-                similarity >= 0.45f -> {
-                    50 + ((similarity - 0.45f) * (30 / 0.15f)).toInt()
-                }
-
-                // 4. Likely different people
-                else -> (similarity * 100).toInt().coerceAtLeast(0)
-            }
-
-            println("adjustedFaceScore $adjustedFaceScore")
+        faceProcessor.compareFaces(img1, img2) { faceScore ->
 
             // 3. Weighted Average
             val totalScore = (nameScore * WEIGHT_NAME) +
                              (dobScore * WEIGHT_DOB) +
                              (addressScore * WEIGHT_ADDRESS) +
-                             (adjustedFaceScore * WEIGHT_FACE)
+                             (faceScore * WEIGHT_FACE)
 
             onComplete(MatchResult(
                 finalScore = totalScore.toInt(),
                 nameMatch = nameScore,
                 dobMatch = dobScore,
                 addressMatch = addressScore,
-                faceMatch = adjustedFaceScore.coerceAtMost(100),
+                faceMatch = faceScore.toInt(),
                 isVerified = totalScore >= 70 // Passing score
             ))
         }

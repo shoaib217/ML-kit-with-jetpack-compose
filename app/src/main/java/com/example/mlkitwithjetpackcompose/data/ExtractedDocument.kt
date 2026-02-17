@@ -29,4 +29,6 @@ sealed class ExtractedDocument(val type: IdType) {
         val frontImageUri: String? = null,
         val backImageUri: String? = null
     ) : ExtractedDocument(IdType.PASSPORT)
+
+    data class Selfie(val imageUri: String? = null) : ExtractedDocument(IdType.SELFIE)
 }

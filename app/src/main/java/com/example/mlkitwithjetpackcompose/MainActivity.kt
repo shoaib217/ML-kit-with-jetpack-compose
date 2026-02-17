@@ -1,6 +1,7 @@
 package com.example.mlkitwithjetpackcompose
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -8,6 +9,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -154,6 +156,32 @@ class MainActivity : ComponentActivity() {
         setContent {
             MLkitWithJetpackComposeTheme {
                 val navController = rememberNavController()
+                var showExitDialog by remember { mutableStateOf(false) }
+
+                // Exit Alert Dialog logic
+                if (showExitDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showExitDialog = false },
+                        title = { Text("Exit App") },
+                        text = { Text("Are you sure you want to exit the application?") },
+                        confirmButton = {
+                            TextButton(onClick = { (this@MainActivity as Activity).finish() }) {
+                                Text("Exit")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showExitDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
+                // Handle back press on main screen
+                BackHandler(enabled = true) {
+                    showExitDialog = true
+                }
+
                 Scaffold(topBar = {
                     TopAppBar(title = { Text(text = "ML Kit Demo") })
                 }, containerColor = MaterialTheme.colorScheme.background) {
@@ -249,7 +277,7 @@ class MainActivity : ComponentActivity() {
                                                 put("gender", result.gender?.name)
                                                 put("address", result.address)
                                                 put("isExpired", false)
-                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
                                             }
                                             is ExtractedDocument.DrivingLicense -> {
                                                 put("idNumber", result.id)
@@ -258,7 +286,7 @@ class MainActivity : ComponentActivity() {
                                                 put("address", result.address)
                                                 put("isExpired", result.isExpired)
                                                 put("gender", null)
-                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = result.address,imageUri = result.imageUri))
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = result.address,imageUri = result.imageUri))
 
                                             }
                                             is ExtractedDocument.Pan -> {
@@ -268,7 +296,7 @@ class MainActivity : ComponentActivity() {
                                                 put("address", null)
                                                 put("gender", null)
                                                 put("isExpired", false)
-                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = null,imageUri = result.imageUri))
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = null,imageUri = result.imageUri))
 
                                             }
                                             is ExtractedDocument.Passport -> {
@@ -278,8 +306,11 @@ class MainActivity : ComponentActivity() {
                                                 put("gender", result.gender?.name)
                                                 put("isExpired", result.isExpired)
                                                 put("address", result.address)
-                                                listOfExtractedDocumentData.add(ExtractedDocumentData(name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
 
+                                            }
+                                            is ExtractedDocument.Selfie -> {
+                                                listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = null, dob = null, address = null,imageUri = result.imageUri) )
                                             }
                                         }
                                     }
@@ -318,6 +349,7 @@ private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
             is ExtractedDocument.DrivingLicense -> Triple(doc.id, doc.name, doc.dob)
             is ExtractedDocument.Pan -> Triple(doc.id, doc.name, doc.dob)
             is ExtractedDocument.Passport -> Triple(doc.id, doc.name, doc.dob)
+            is ExtractedDocument.Selfie -> Triple(0, null, null)
         }
 
         append("ID Number: $id\n")
@@ -344,6 +376,9 @@ private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
             }
             is ExtractedDocument.Pan -> {
                 // No extra fields for PAN in this model
+            }
+            is ExtractedDocument.Selfie -> {
+
             }
         }
     }
@@ -433,13 +468,18 @@ fun MainScreen(
                             )
 
                             Column(modifier = Modifier.padding(start = 16.dp)) {
-                                Text(text = doc.name ?: "Unknown Name", style = MaterialTheme.typography.titleMedium)
-                                Text(text = "DOB: ${doc.dob ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
-                                // Assuming IdType is part of doc or can be inferred
-                                Text(
-                                    text = "Pincode: ${doc.address?.takeLast(6) ?: "N/A"}",
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Text(text = doc.documentType.name, style = MaterialTheme.typography.titleMedium)
+                                if (doc.documentType != IdType.SELFIE) {
+                                    Text(text = doc.name ?: "Unknown Name", style = MaterialTheme.typography.titleMedium)
+                                    Text(text = "DOB: ${doc.dob ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
+                                    // Assuming IdType is part of doc or can be inferred
+                                    Text(
+                                        text = "Pincode: ${doc.address ?: "N/A"}",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -523,8 +563,8 @@ private fun buildMatchResultString(doc: DocumentMatcher.MatchResult): String {
         append("DOB Match: ${doc.dobMatch}\n")
         append("Address Match: ${doc.addressMatch}\n")
         append("Face Match: ${doc.faceMatch}\n")
-        append("Final Score: ${doc.finalScore}\n")
-        append("Is Verified: ${if (doc.isVerified) "Yes" else "No"}\n")
+        /*append("Final Score: ${doc.finalScore}\n")
+        append("Is Verified: ${if (doc.isVerified) "Yes" else "No"}\n")*/
 
     }
 }

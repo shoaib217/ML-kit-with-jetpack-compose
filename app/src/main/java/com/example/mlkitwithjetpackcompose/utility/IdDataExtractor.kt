@@ -53,6 +53,7 @@ object IdDataExtractor {
             IdType.AADHAAR -> extractAadhaarDetails(visionText)
             IdType.DRIVING_LICENSE -> extractDlDetails(visionText)
             IdType.PASSPORT -> extractPassportDetails(visionText)
+            IdType.SELFIE -> ExtractedDocument.Selfie()
         }
     }
 

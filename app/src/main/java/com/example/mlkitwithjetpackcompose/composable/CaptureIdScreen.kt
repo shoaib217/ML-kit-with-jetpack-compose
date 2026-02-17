@@ -2,8 +2,14 @@ package com.example.mlkitwithjetpackcompose.composable
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageCapture
@@ -15,8 +21,10 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
@@ -51,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
 import com.example.mlkitwithjetpackcompose.data.IdType
@@ -60,6 +70,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.util.concurrent.Executors
 
 
@@ -106,6 +117,38 @@ fun CaptureIdScreen(
 
     val executor = remember { ContextCompat.getMainExecutor(context) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+
+    // --- Gallery Picker ---
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            if (uri != null) {
+                isProcessing = true
+                processGalleryImage(
+                    context = context,
+                    uri = uri,
+                    requiredType = requiredIdType,
+                    isBackSide = currentStep == CaptureStep.BACK,
+                    onResult = { result, savedPath ->
+                        isProcessing = false
+                        handleResult(
+                            result = result,
+                            uri = savedPath,
+                            isMultiStep = isMultiStep,
+                            currentStep = currentStep,
+                            frontResult = frontResult,
+                            onFrontCaptured = { frontResult = it; currentStep = CaptureStep.BACK },
+                            onFinish = onIdVerified
+                        )
+                    },
+                    onError = { error ->
+                        isProcessing = false
+                        captureError = error
+                    }
+                )
+            }
+        }
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Camera Preview
@@ -167,19 +210,38 @@ fun CaptureIdScreen(
             }
         }
 
-        // Flash Button
-        IconButton(
-            onClick = { isFlashOn = !isFlashOn },
+        // Action Buttons Top Row
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 40.dp, end = 20.dp)
+                .padding(top = 40.dp, end = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Icon(
-                imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                contentDescription = "Flash",
-                tint = if (isFlashOn) Color.Yellow else Color.White,
-                modifier = Modifier.size(32.dp)
-            )
+            // Gallery Picker Button
+            IconButton(
+                onClick = {
+                    galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhotoLibrary,
+                    contentDescription = "Gallery",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+
+            // Flash Button
+            IconButton(
+                onClick = { isFlashOn = !isFlashOn }
+            ) {
+                Icon(
+                    imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                    contentDescription = "Flash",
+                    tint = if (isFlashOn) Color.Yellow else Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
 
         // 3. Capture Button & Logic
@@ -204,38 +266,15 @@ fun CaptureIdScreen(
                             isBackSide = currentStep == CaptureStep.BACK,
                             onResult = { result, uri->
                                 isProcessing = false
-
-                                val resultWithImage = when(result) {
-                                    is ExtractedDocument.Aadhaar -> {
-                                        when(currentStep) {
-                                            CaptureStep.FRONT -> result.copy(frontImageUri = uri)
-                                            CaptureStep.BACK -> result.copy(backImageUri = uri)
-                                        }
-                                    }
-                                    is ExtractedDocument.Passport -> {
-                                        when(currentStep) {
-                                            CaptureStep.FRONT -> result.copy(frontImageUri = uri)
-                                            CaptureStep.BACK -> result.copy(backImageUri = uri)
-                                        }
-                                    }
-                                    is ExtractedDocument.Pan -> result.copy(imageUri = uri)
-                                    is ExtractedDocument.DrivingLicense -> result.copy(imageUri = uri)
-                                }
-
-                                if (isMultiStep) {
-                                    if (currentStep == CaptureStep.FRONT) {
-                                        // Store front result and move to back
-                                        frontResult = resultWithImage
-                                        currentStep = CaptureStep.BACK
-                                    } else {
-                                        // Merge front + back and finish
-                                        val mergedDoc = IdDataExtractor.mergeDetails(frontResult!!, resultWithImage)
-                                        onIdVerified(mergedDoc)
-                                    }
-                                } else {
-                                    // Single step (PAN/DL)
-                                    onIdVerified(resultWithImage)
-                                }
+                                handleResult(
+                                    result = result,
+                                    uri = uri,
+                                    isMultiStep = isMultiStep,
+                                    currentStep = currentStep,
+                                    frontResult = frontResult,
+                                    onFrontCaptured = { frontResult = it; currentStep = CaptureStep.BACK },
+                                    onFinish = onIdVerified
+                                )
                             },
                             onError = { error ->
                                 isProcessing = false
@@ -259,6 +298,136 @@ fun CaptureIdScreen(
             )
         }
     }
+}
+
+/**
+ * Shared logic to handle the result (Camera or Gallery)
+ */
+private fun handleResult(
+    result: ExtractedDocument,
+    uri: String,
+    isMultiStep: Boolean,
+    currentStep: CaptureStep,
+    frontResult: ExtractedDocument?,
+    onFrontCaptured: (ExtractedDocument) -> Unit,
+    onFinish: (ExtractedDocument) -> Unit
+) {
+    val resultWithImage = when(result) {
+        is ExtractedDocument.Aadhaar -> {
+            when(currentStep) {
+                CaptureStep.FRONT -> result.copy(frontImageUri = uri)
+                CaptureStep.BACK -> result.copy(backImageUri = uri)
+            }
+        }
+        is ExtractedDocument.Passport -> {
+            when(currentStep) {
+                CaptureStep.FRONT -> result.copy(frontImageUri = uri)
+                CaptureStep.BACK -> result.copy(backImageUri = uri)
+            }
+        }
+        is ExtractedDocument.Pan -> result.copy(imageUri = uri)
+        is ExtractedDocument.DrivingLicense -> result.copy(imageUri = uri)
+        is ExtractedDocument.Selfie -> result.copy(imageUri = uri)
+    }
+
+    if (isMultiStep) {
+        if (currentStep == CaptureStep.FRONT) {
+            onFrontCaptured(resultWithImage)
+        } else {
+            val mergedDoc = IdDataExtractor.mergeDetails(frontResult!!, resultWithImage)
+            onFinish(mergedDoc)
+        }
+    } else {
+        onFinish(resultWithImage)
+    }
+}
+
+private fun processGalleryImage(
+    context: Context,
+    uri: Uri,
+    requiredType: IdType,
+    isBackSide: Boolean,
+    onResult: (ExtractedDocument, String) -> Unit,
+    onError: (String) -> Unit
+) {
+    try {
+        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream?.close()
+
+        if (bitmap == null) {
+            onError("Failed to decode image.")
+            return
+        }
+
+        // Handle Exif Rotation
+        val correctedBitmap = rotateBitmapIfRequired(context, bitmap, uri)
+
+        if (requiredType == IdType.SELFIE) {
+            val fileName = "ID_GAL_${System.currentTimeMillis()}.jpg"
+            val file = File(context.filesDir, fileName)
+            FileOutputStream(file).use { out ->
+                correctedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            val savedUri = file.absolutePath
+            onResult(ExtractedDocument.Selfie(), savedUri)
+        }
+
+        val image = InputImage.fromBitmap(correctedBitmap, 0)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+        recognizer.process(image)
+            .addOnSuccessListener { visionText ->
+                // Save gallery image to local storage for persistence
+                val fileName = "ID_GAL_${System.currentTimeMillis()}.jpg"
+                val file = File(context.filesDir, fileName)
+                FileOutputStream(file).use { out ->
+                    correctedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                }
+                val savedUri = file.absolutePath
+
+                if (isBackSide) {
+                    val backResult = IdDataExtractor.extractBackSideData(visionText, requiredType)
+                    if (backResult != null) {
+                        onResult(backResult, savedUri)
+                    } else {
+                        onError("Could not detect Address on the back side of the selected image.")
+                    }
+                } else {
+                    val result = IdDataExtractor.extractData(visionText)
+                    if (result == null) {
+                        onError("No valid ID detected in the selected image.")
+                    } else if (result.type != requiredType) {
+                        onError("Incorrect ID Type. Expected ${requiredType.name} but found ${result.type.name}.")
+                    } else {
+                        onResult(result, savedUri)
+                    }
+                }
+            }
+            .addOnFailureListener { onError("OCR Failed: ${it.localizedMessage}") }
+    } catch (e: Exception) {
+        onError("Failed to load image from gallery.")
+    }
+}
+
+private fun rotateBitmapIfRequired(context: Context, bitmap: Bitmap, uri: Uri): Bitmap {
+    val inputStream = context.contentResolver.openInputStream(uri) ?: return bitmap
+    val ei = ExifInterface(inputStream)
+    val orientation = ei.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    inputStream.close()
+
+    return when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> rotateImage(bitmap, 90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> rotateImage(bitmap, 180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> rotateImage(bitmap, 270f)
+        else -> bitmap
+    }
+}
+
+private fun rotateImage(source: Bitmap, angle: Float): Bitmap {
+    val matrix = Matrix()
+    matrix.postRotate(angle)
+    return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
 }
 
 private fun captureAndProcess(
@@ -340,48 +509,6 @@ private fun captureAndProcess(
 }
 
 
-// Logic to Capture -> Process -> Validate
-private fun captureAndValidate(
-    imageCapture: ImageCapture,
-    executor: java.util.concurrent.Executor,
-    onSuccess: (ExtractedDocument) -> Unit,
-    onError: (String) -> Unit,
-) {
-    imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
-        @androidx.annotation.OptIn(ExperimentalGetImage::class)
-        override fun onCaptureSuccess(imageProxy: ImageProxy) {
-            val mediaImage = imageProxy.image
-            if (mediaImage != null) {
-                val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-                recognizer.process(image)
-                    .addOnSuccessListener { visionText ->
-                        println("visionText : ${visionText.text}")
-                        val result = IdDataExtractor.extractData(visionText)
-                        if (result != null) {
-                            onSuccess(result)
-                        } else {
-                            onError("Could not verify ID. \n\nEnsure no glare, good lighting, and valid Indian ID.")
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        onError("Text recognition failed: ${e.localizedMessage}")
-                    }
-                    .addOnCompleteListener {
-                        imageProxy.close() // CRITICAL: Close to free memory
-                    }
-            } else {
-                imageProxy.close()
-                onError("Capture failed.")
-            }
-        }
-
-        override fun onError(exception: ImageCaptureException) {
-            onError("Camera error: ${exception.localizedMessage}")
-        }
-    })
-}
 
 @Composable
 fun ScannerOverlay() {
