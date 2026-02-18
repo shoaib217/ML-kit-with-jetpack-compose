@@ -371,6 +371,7 @@ private fun processGalleryImage(
             }
             val savedUri = file.absolutePath
             onResult(ExtractedDocument.Selfie(), savedUri)
+            return
         }
 
         val image = InputImage.fromBitmap(correctedBitmap, 0)
