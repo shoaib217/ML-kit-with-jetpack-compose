@@ -227,7 +227,7 @@ fun DocumentScannerScreen(mainActivity: MainActivity) {
 }
 
 @Composable
-fun ZoomableAsyncImage(
+private fun ZoomableAsyncImage(
     modifier: Modifier = Modifier,
     model: Any?,
     contentDescription: String?,

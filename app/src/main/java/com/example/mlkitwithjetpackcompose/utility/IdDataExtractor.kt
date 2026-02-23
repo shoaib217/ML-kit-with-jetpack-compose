@@ -195,45 +195,67 @@ object IdDataExtractor {
         return null
     }
 
-    // Helper B: Look above the ID (Bottom-up approach)
-    private fun findNameAboveId(lines: List<Text.Line>, panId: String): String? {
-        // Find the line containing the PAN ID
-        val idLineIndex = lines.indexOfFirst { it.text.contains(panId, ignoreCase = true) }
+    private fun extractNameFromPan(lines: List<Text.Line>): String? {
+        // 1. ANCHOR METHOD (Most Reliable)
+        val nameLabelIndex = lines.indexOfFirst {
+            val upper = it.text.uppercase()
+            upper.contains("NAME") &&
+                    !upper.contains("FATHER") &&
+                    !upper.contains("FA THER") &&
+                    !upper.contains("THER'S")
+        }
 
-        if (idLineIndex > 1) {
-            // The structure is usually:
-            // [Name]
-            // [Father's Name]
-            // [DOB]
-            // [PAN Number]
-            // So we look 2 to 3 lines above the ID.
-
-            // Try looking 3 lines up first (Name), then 2 lines up
-            for (offset in 3 downTo 1) {
-                val targetIndex = idLineIndex - offset
-                if (targetIndex >= 0) {
-                    val candidate = lines[targetIndex]
-                    if (isValidName(candidate.text)) {
-                        return candidate.text
+        if (nameLabelIndex != -1) {
+            // Look at the next 1 to 3 lines after the "Name" label
+            for (offset in 1..3) {
+                val targetIndex = nameLabelIndex + offset
+                if (targetIndex < lines.size) {
+                    val candidate = lines[targetIndex].text.trim()
+                    if (isValidName(candidate)) {
+                        return candidate // Will return "ROMIT ROY"
                     }
                 }
             }
         }
+
+        // 2. FALLBACK METHOD (If "Name" label is unreadable)
+        val dobIndex = lines.indexOfFirst {
+            val upper = it.text.uppercase()
+            upper.contains("BIRTH") || upper.contains("DOB")
+        }
+
+        if (dobIndex > 1) {
+            for (offset in 2..5) {
+                val targetIndex = dobIndex - offset
+                if (targetIndex >= 0) {
+                    val candidate = lines[targetIndex].text.trim()
+                    if (isValidName(candidate)) {
+                        return candidate
+                    }
+                }
+            }
+        }
+
         return null
     }
 
     // Strict validation to ensure we don't pick up garbage
     private fun isValidName(text: String): Boolean {
         val upper = text.uppercase()
+
         return text.length > 2 &&
-                !text.any { it.isDigit() } && // Names don't have numbers
+                !text.any { it.isDigit() } &&    // Names don't have numbers
+                !text.contains("/") &&           // Names NEVER have forward slashes
+                !upper.contains("NAME") &&       // A real name won't contain the label "NAME"
+                !upper.contains("HTH") &&        // Common OCR misread of Hindi text on PAN
+                !upper.contains("HTA") &&        // Common OCR misread of Hindi text on PAN
+                !upper.contains("FATHER") &&
                 !upper.contains("INCOME") &&
                 !upper.contains("TAX") &&
                 !upper.contains("INDIA") &&
                 !upper.contains("GOVT") &&
                 !upper.contains("PERMANENT") &&
-                !upper.contains("ACCOUNT") &&
-                !upper.contains("FATHER") // Skip "Father's Name" label
+                !upper.contains("ACCOUNT")
     }
 
     /**
@@ -258,10 +280,9 @@ object IdDataExtractor {
         // Strategy A: Find "Income Tax Department" and take the NEXT valid line
         var name = findNameBelowHeader(lines)
 
-        // Strategy B: If A fails, find the PAN Number and look 2-3 lines ABOVE it
-        // (Layout: Name -> Father Name -> DOB -> PAN Number)
+        // Strategy B: ANCHOR METHOD
         if (name == null && id.isNotEmpty()) {
-            name = findNameAboveId(lines, id)
+            name = extractNameFromPan(lines)
         }
         return ExtractedDocument.Pan(id, name, dob)
     }

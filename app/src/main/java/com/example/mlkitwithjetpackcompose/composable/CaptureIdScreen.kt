@@ -379,6 +379,7 @@ private fun processGalleryImage(
 
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
+                Log.d("TAG", "visionText: ${visionText.text}")
                 // Save gallery image to local storage for persistence
                 val fileName = "ID_GAL_${System.currentTimeMillis()}.jpg"
                 val file = File(context.filesDir, fileName)
@@ -450,6 +451,7 @@ private fun captureAndProcess(
 
                 recognizer.process(image)
                     .addOnSuccessListener { visionText ->
+                        Log.d("TAG", "visionText: ${visionText.text}")
                         val bitmap = imageProxy.toBitmap() 
                         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                         
@@ -473,7 +475,6 @@ private fun captureAndProcess(
                         }
                         val savedUri = file.absolutePath
 
-                        Log.d("TAG", "visionText: ${visionText.text}")
                         // 1. Back Side Logic (Focus on Address)
                         if (isBackSide) {
                             val backResult = IdDataExtractor.extractBackSideData(visionText, requiredType)

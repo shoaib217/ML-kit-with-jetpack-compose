@@ -12,10 +12,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,8 +32,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -59,7 +63,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.example.mlkitwithjetpackcompose.composable.CaptureIdScreen
-import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreen
+import com.example.mlkitwithjetpackcompose.composable.DocumentScannerScreenAndOCR
 import com.example.mlkitwithjetpackcompose.composable.TextRecognitionScreen
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocument
 import com.example.mlkitwithjetpackcompose.data.ExtractedDocumentData
@@ -201,7 +205,141 @@ class MainActivity : ComponentActivity() {
 
                         }
                         composable(DOCUMENT_SCANNER_SCREEN) {
-                            DocumentScannerScreen(mainActivity = this@MainActivity)
+//                            DocumentScannerScreen(mainActivity = this@MainActivity)
+                            var expanded by remember { mutableStateOf(false) }
+                            var selectedIdType by remember { mutableStateOf(IdType.AADHAAR) }
+                            var showCamera by remember { mutableStateOf(false) }
+                            var extractedDocument by remember { mutableStateOf<ExtractedDocument?>(null) }
+
+                            if (!showCamera) {
+                                // Selection UI
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Select ID Type to Verify",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        modifier = Modifier.padding(bottom = 16.dp)
+                                    )
+
+                                    ExposedDropdownMenuBox(
+                                        expanded = expanded,
+                                        onExpandedChange = { expanded = !expanded }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = selectedIdType.name,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("ID Type") },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                                            modifier = Modifier.menuAnchor()
+                                        )
+
+                                        ExposedDropdownMenu(
+                                            expanded = expanded,
+                                            onDismissRequest = { expanded = false }
+                                        ) {
+                                            IdType.entries.forEach { idType ->
+                                                DropdownMenuItem(
+                                                    text = { Text(idType.name) },
+                                                    onClick = {
+                                                        selectedIdType = idType
+                                                        expanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    FilledTonalButton(
+                                        onClick = { showCamera = true },
+                                        modifier = Modifier.padding(top = 24.dp)
+                                    ) {
+                                        Text("Start Verification")
+                                    }
+                                }
+                            } else {
+                                DocumentScannerScreenAndOCR(
+                                    requiredIdType = selectedIdType,
+                                    onCancel = { showCamera = false }, // Close camera state if user presses back
+                                    onIdVerified = { result ->
+                                        showCamera = false // Hide camera view after success
+
+                                        // 1. Create JSON using the safe sealed class properties
+                                        val ocrJSON = JSONObject().apply {
+                                            put("type", result.type.name)
+
+                                            // Accessing common properties directly from the sealed class base/wrappers
+                                            // (Note: Since we used a sealed class, we handle specific fields inside a when or via cast)
+                                            when (result) {
+                                                is ExtractedDocument.Aadhaar -> {
+                                                    put("idNumber", result.id)
+                                                    put("name", result.name)
+                                                    put("dob", result.dob)
+                                                    put("gender", result.gender?.name)
+                                                    put("address", result.address)
+                                                    put("isExpired", false)
+                                                    listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
+                                                }
+                                                is ExtractedDocument.DrivingLicense -> {
+                                                    put("idNumber", result.id)
+                                                    put("name", result.name)
+                                                    put("dob", result.dob)
+                                                    put("address", result.address)
+                                                    put("isExpired", result.isExpired)
+                                                    put("gender", null)
+                                                    listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = result.address,imageUri = result.imageUri))
+
+                                                }
+                                                is ExtractedDocument.Pan -> {
+                                                    put("idNumber", result.id)
+                                                    put("name", result.name)
+                                                    put("dob", result.dob)
+                                                    put("address", null)
+                                                    put("gender", null)
+                                                    put("isExpired", false)
+                                                    listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = null,imageUri = result.imageUri))
+
+                                                }
+                                                is ExtractedDocument.Passport -> {
+                                                    put("idNumber", result.id)
+                                                    put("name", result.name)
+                                                    put("dob", result.dob)
+                                                    put("gender", result.gender?.name)
+                                                    put("isExpired", result.isExpired)
+                                                    put("address", result.address)
+                                                    listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = result.name, dob = result.dob, address = result.address,imageUri = result.frontImageUri))
+
+                                                }
+                                                is ExtractedDocument.Selfie -> {
+                                                    listOfExtractedDocumentData.add(ExtractedDocumentData(documentType = result.type,name = null, dob = null, address = null,imageUri = result.imageUri) )
+                                                }
+                                            }
+                                        }
+
+                                        println("ocrJSON - $ocrJSON")
+                                        extractedDocument = result
+                                    }
+                                )
+                            }
+
+                            // 2. Display Dialog with dynamic data based on the Sealed Class type
+                            extractedDocument?.let { doc ->
+                                AlertDialog(
+                                    onDismissRequest = { extractedDocument = null },
+                                    confirmButton = {
+                                        TextButton(onClick = { extractedDocument = null }) { Text("OK") }
+                                    },
+                                    title = { Text("Extracted ${doc.type.name}") },
+                                    text = {
+                                         Text(buildDocumentDisplayString(doc))
+                                    }
+                                )
+                            }
                         }
                         composable(DOCUMENT_DETECTION) {
                             var expanded by remember { mutableStateOf(false) }
@@ -487,16 +625,24 @@ fun MainScreen(
             }
 
             // 2. Navigation & Compare Actions
-            Row(
-                modifier = Modifier.padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                maxItemsInEachRow = 2 // Keeps it looking clean
+            ){
                 Button(onClick = { navController.navigate(MainActivity.DOCUMENT_DETECTION) }) {
                     Text(text = "Add New ID")
                 }
 
+                FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_SCANNER_SCREEN) }) {
+                    Text(text = "Document Scanner")
+                }
+
                 // Show compare only when exactly 2 are selected
-                if (selectedIndices.size == 2) {
+                AnimatedVisibility(selectedIndices.size == 2) {
                     Button(
                         onClick = {
                             val indices = selectedIndices.toList()
@@ -524,6 +670,7 @@ fun MainScreen(
                         else Text(text = "Compare Selection")
                     }
                 }
+
             }
         }
 

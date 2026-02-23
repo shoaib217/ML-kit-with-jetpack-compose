@@ -54,7 +54,7 @@ class FaceRecognitionProcessor(context: Context) {
     fun compareFaces(
         bitmap1: Bitmap,
         bitmap2: Bitmap,
-        onResult: (Float) -> Unit
+        onResult: (Float) -> Unit,
     ) {
         detectAndCrop(bitmap1) { face1 ->
             if (face1 == null) { onResult(0f); return@detectAndCrop }
@@ -210,41 +210,47 @@ class FaceRecognitionProcessor(context: Context) {
      * @return A calibrated confidence score between 0.0 and 100.0.
      */
     private fun calibrateConfidence(rawSimilarity: Float): Float {
-        // 1. Strict Threshold: Raised from 0.32 -> 0.40
-        // Different people usually score 0.20 - 0.38.
-        // Same person with beard/age usually scores 0.45 - 0.65.
-        val threshold = 0.40f
+        // --- PRODUCTION THRESHOLDS FOR FACENET-512 (L2 NORMALIZED) ---
+        // These raw thresholds are based on real-world Cosine Similarity distributions:
+        val RAW_HIGH_CONFIDENCE = 0.75f  // Exact match / Recent selfie
+        val RAW_AGING_MATCH     = 0.55f  // 10-year gap / beard / skin tone changes
+        val RAW_LOOKALIKE       = 0.45f  // Relatives / Similar bone structure (False Positives)
 
         return when {
-            // CASE A: High Confidence (Identical / Recent Photo)
-            // Score: 90% - 100%
-            rawSimilarity > 0.75f -> {
-                90f + ((rawSimilarity - 0.75f) * (10f / 0.25f))
+            // ZONE 1: HIGH CONFIDENCE (90% to 100%)
+            // Raw Score: 0.75 to 1.00
+            rawSimilarity >= RAW_HIGH_CONFIDENCE -> {
+                val range = 1.00f - RAW_HIGH_CONFIDENCE
+                val normalized = (rawSimilarity - RAW_HIGH_CONFIDENCE) / range
+                // Maps to 90% - 100%
+                90f + (normalized * 10f)
             }
 
-            // CASE B: The "Beard/Age" Zone (0.55 - 0.75)
-            // This is the sweet spot for aging. We boost these to 80% - 90%.
-            rawSimilarity > 0.55f -> {
-                80f + ((rawSimilarity - 0.55f) * (10f / 0.20f))
+            // ZONE 2: TRUE MATCH WITH AGING / SKIN TONE (70% to 89.9%)
+            // Raw Score: 0.55 to 0.749...
+            // This is the "Forgiveness Zone" for real users.
+            rawSimilarity >= RAW_AGING_MATCH -> {
+                val range = RAW_HIGH_CONFIDENCE - RAW_AGING_MATCH
+                val normalized = (rawSimilarity - RAW_AGING_MATCH) / range
+                // Maps to 70% - 89.9%
+                70f + (normalized * 20f)
             }
 
-            // CASE C: The "Uncertain" Zone (0.40 - 0.55)
-            // This is where "Different People" and "Heavy Aging" overlap.
-            // We map this STRICTLY linearly (60% - 80%).
-            // We DO NOT use a boost curve here to prevent false positives.
-            rawSimilarity >= threshold -> {
-                val range = 0.55f - threshold // 0.15 range
-                val normalized = (rawSimilarity - threshold) / range
-
-                // Linear mapping: 0.40->60%, 0.55->80%
-                60f + (normalized * 20f)
+            // ZONE 3: LOOKALIKES & FALSE POSITIVES (40% to 69.9%)
+            // Raw Score: 0.45 to 0.549...
+            // STRICT RULE: Must be below 70% so your app rejects them.
+            rawSimilarity >= RAW_LOOKALIKE -> {
+                val range = RAW_AGING_MATCH - RAW_LOOKALIKE
+                val normalized = (rawSimilarity - RAW_LOOKALIKE) / range
+                // Maps to 40% - 69.9%
+                40f + (normalized * 30f)
             }
 
-            // CASE D: Non-Match (Different Person)
-            // Score: 0% - 59%
+            // ZONE 4: DEFINITE MISMATCH (0% to 39.9%)
+            // Raw Score: Below 0.45
             else -> {
-                // Rapid drop-off
-                (rawSimilarity / threshold) * 55f
+                // Rapid drop-off to 0
+                (rawSimilarity / RAW_LOOKALIKE) * 40f
             }
         }.coerceIn(0f, 100f)
     }
