@@ -13,7 +13,7 @@ object IdDataExtractor {
 
     // Regex for specific fields - Normalized to handle common OCR gaps
     private val DATE_PATTERN = Pattern.compile("[0-3]?\\d[/-][0-1]?\\d[/-]\\d{4}")
-    private val PAN_PATTERN = Pattern.compile("[A-Z]{5}[0-9]{4}[A-Z]{1}")
+    private val PAN_PATTERN = Pattern.compile("[A-Z]{5}[0-9OI]{4}[A-Z]{1}")
     private val AADHAAR_PATTERN = Pattern.compile("[2-9]{1}[0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}")
     private val DL_PATTERN = Pattern.compile("[A-Z]{2}[-]?[0-9]{2,3}[-]?[0-9]{4}[-]?[0-9]{7,}")
     private val PASSPORT_PATTERN = Pattern.compile("[A-Z][0-9]{7}")
@@ -163,12 +163,43 @@ object IdDataExtractor {
     }
 
 
+    fun extractAndSanitizePan(text: String): String? {
+        val cleanText = text.uppercase().replace(" ", "")
+
+        // We use the lenient regex to find where the PAN is hidden in the text
+        val lenientPattern = Pattern.compile("[A-Z]{5}[0-9OI]{4}[A-Z]{1}")
+        val matcher = lenientPattern.matcher(cleanText)
+
+        if (matcher.find()) {
+            val rawPan = matcher.group()
+
+            // Split the PAN into its structural parts
+            val firstFiveLetters = rawPan.substring(0, 5)
+            val middleFourNumbers = rawPan.substring(5, 9)
+            val lastLetter = rawPan.substring(9, 10)
+
+            // Fix common OCR errors specifically in the numbers section
+            val fixedNumbers = middleFourNumbers
+                .replace("O", "0")
+                .replace("I", "1")
+                .replace("l", "1")
+                .replace("S", "5")
+                .replace("B", "8")
+
+            // You could do the same for the letter sections (e.g., replacing "0" with "O")
+
+            return "$firstFiveLetters$fixedNumbers$lastLetter" // Returns "AIVPU0924A"
+        }
+
+        return null
+    }
+
     fun getDocumentType(fullText: String): IdType? {
         val upper = fullText.uppercase()
         return when {
             // Passport detection: Usually contains "PASSPORT" or the MRZ start pattern "P<"
             upper.contains("PASSPORT") || upper.contains("REPUBLIC OF INDIA") || fullText.contains("P<") -> IdType.PASSPORT
-            PAN_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.PAN
+            extractAndSanitizePan(fullText) != null -> IdType.PAN
             upper.contains("MALE") || upper.contains("FEMALE") || AADHAAR_PATTERN.matcher(upper).find() -> IdType.AADHAAR
             upper.contains("DRIVING") && DL_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.DRIVING_LICENSE
             else -> null
@@ -243,19 +274,25 @@ object IdDataExtractor {
     private fun isValidName(text: String): Boolean {
         val upper = text.uppercase()
 
+        // Standalone OCR noise patterns that are NOT names (usually misread Hindi text)
+        val standaloneJunk = listOf("HTH", "HTA")
+
+        // Keywords that should invalidate the line if found anywhere (labels)
+        val invalidKeywords = listOf(
+            "NAME", "FATHER", "INCOME", "TAX", "INDIA", "GOVT",
+            "PERMANENT", "ACCOUNT", "SIGNATURE", "HOLDER"
+        )
+
+        val words = upper.split(" ").filter { it.isNotBlank() }
+
+        // Fix: If "HTA" is the ONLY thing in the line, it's junk.
+        // If it's part of "MEHTA", words.contains("HTA") will be false, and it will pass.
+        if (words.size == 1 && standaloneJunk.contains(words[0])) return false
+
         return text.length > 2 &&
                 !text.any { it.isDigit() } &&    // Names don't have numbers
                 !text.contains("/") &&           // Names NEVER have forward slashes
-                !upper.contains("NAME") &&       // A real name won't contain the label "NAME"
-                !upper.contains("HTH") &&        // Common OCR misread of Hindi text on PAN
-                !upper.contains("HTA") &&        // Common OCR misread of Hindi text on PAN
-                !upper.contains("FATHER") &&
-                !upper.contains("INCOME") &&
-                !upper.contains("TAX") &&
-                !upper.contains("INDIA") &&
-                !upper.contains("GOVT") &&
-                !upper.contains("PERMANENT") &&
-                !upper.contains("ACCOUNT")
+                !invalidKeywords.any { upper.contains(it) }
     }
 
     /**
@@ -274,7 +311,7 @@ object IdDataExtractor {
         val lines = text.textBlocks.flatMap { it.lines }
         val rawTextLines = lines.map { it.text }
 
-        val id = findPattern(rawTextLines, PAN_PATTERN) ?: ""
+        val id = extractAndSanitizePan(text.text) ?: ""
         val dob = findPattern(rawTextLines, DATE_PATTERN)
 
         // Strategy A: Find "Income Tax Department" and take the NEXT valid line
