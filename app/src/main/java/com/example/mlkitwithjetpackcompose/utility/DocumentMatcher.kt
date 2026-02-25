@@ -65,36 +65,49 @@ object DocumentMatcher {
     }
 
     private fun calculateNameSimilarity(name1: String?, name2: String?): Int {
+
         if (name1.isNullOrBlank() || name2.isNullOrBlank()) return 0
 
-        val n1 = name1.uppercase().trim().split(" ").filter { it.isNotBlank() }
-        val n2 = name2.uppercase().trim().split(" ").filter { it.isNotBlank() }
+        val tokens1 = name1.uppercase()
+            .replace("[^A-Z ]".toRegex(), "")
+            .split(" ")
+            .filter { it.isNotBlank() }
 
-        // Segment Extraction
-        val first1 = n1.getOrNull(0) ?: ""
-        val last1 = if (n1.size > 1) n1.last() else ""
-        val middle1 = if (n1.size > 2) n1.subList(1, n1.size - 1).joinToString(" ") else ""
+        val tokens2 = name2.uppercase()
+            .replace("[^A-Z ]".toRegex(), "")
+            .split(" ")
+            .filter { it.isNotBlank() }
 
-        val first2 = n2.getOrNull(0) ?: ""
-        val last2 = if (n2.size > 1) n2.last() else ""
-        val middle2 = if (n2.size > 2) n2.subList(1, n2.size - 1).joinToString(" ") else ""
+        if (tokens1.isEmpty() || tokens2.isEmpty()) return 0
 
-        // 1. First Name Match (Weight: 40%)
-        val firstScore = (getFuzzyMatch(first1, first2) * 0.40).toInt()
+        var totalScore = 0.0
+        var matchedCount = 0
 
-        // 2. Last Name Match (Weight: 40%)
-        val lastScore = (getFuzzyMatch(last1, last2) * 0.40).toInt()
+        for (t1 in tokens1) {
+            var bestMatch = 0
 
-        // 3. Middle Name Match (Weight: 20%)
-        val middleScore = when {
-            middle1.isEmpty() && middle2.isEmpty() -> 20 // Both blank is a perfect match
-            middle1.isEmpty() || middle2.isEmpty() -> 15 // One blank gets partial credit
-            else -> (getFuzzyMatch(middle1, middle2) * 0.20).toInt()
+            for (t2 in tokens2) {
+                val score = getFuzzyMatch(t1, t2)
+                if (score > bestMatch) {
+                    bestMatch = score
+                }
+            }
+
+            if (bestMatch >= 70) { // threshold for valid match
+                matchedCount++
+                totalScore += bestMatch
+            }
         }
 
-        val totalScore = firstScore + lastScore + middleScore
+        val coverage = matchedCount.toDouble() / maxOf(tokens1.size, tokens2.size)
 
-        return if (name1.uppercase().trim() == name2.uppercase().trim()) 100 else totalScore
+        val averageScore = if (matchedCount > 0)
+            totalScore / matchedCount
+        else 0.0
+
+        val finalScore = (averageScore * coverage).toInt()
+
+        return finalScore.coerceIn(0, 100)
     }
 
     /**

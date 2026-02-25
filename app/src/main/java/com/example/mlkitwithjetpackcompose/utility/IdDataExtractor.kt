@@ -15,8 +15,15 @@ object IdDataExtractor {
     private val DATE_PATTERN = Pattern.compile("[0-3]?\\d[/-][0-1]?\\d[/-]\\d{4}")
     private val PAN_PATTERN = Pattern.compile("[A-Z]{5}[0-9OI]{4}[A-Z]{1}")
     private val AADHAAR_PATTERN = Pattern.compile("[2-9]{1}[0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}")
-    private val DL_PATTERN = Pattern.compile("[A-Z]{2}[-]?[0-9]{2,3}[-]?[0-9]{4}[-]?[0-9]{7,}")
+    private val DL_PATTERN = Pattern.compile("([A-Z]{2}[- /]?[0-9]{2,3}[- /]?[0-9]{4}[- /]?[0-9]{7})")
     private val PASSPORT_PATTERN = Pattern.compile("[A-Z][0-9]{7}")
+
+    // Valid State Codes to prevent false positives from random alphanumeric OCR noise
+    private val STATE_CODES = setOf(
+        "AN", "AP", "AR", "AS", "BR", "CH", "DN", "DD", "DL", "GA", "GJ", "HR",
+        "HP", "JK", "KA", "KL", "LD", "MP", "MH", "MN", "ML", "MZ", "NL", "OR",
+        "PY", "PN", "RJ", "SK", "TN", "TR", "UP", "WB", "TS", "UK", "UA", "CG", "JH"
+    )
 
     private val IGNORE_HEADERS = listOf(
         "INCOME", "TAX", "DEPARTMENT", "GOVT", "INDIA", "GOVERNMENT",
@@ -25,7 +32,10 @@ object IdDataExtractor {
 
     private val DL_JUNK_WORDS = listOf(
         "TRANSPORT", "DEPARTMENT", "GOVT", "INDIA", "STATE", "DRIVING", "LICENCE", "LICENSE",
-        "UNION", "TERRITORY", "VALID", "AUTHORIZATION", "ISSUE", "DATE", "CARD", "CHIP"
+        "UNION", "TERRITORY", "VALID", "AUTHORIZATION", "AUTHORISATION", "ISSUE", "DATE", "CARD",
+        "CHIP", "SMART", "ZONAL", "OFFICE", "RTO", "MOTOR", "VEHICLE",
+        // New additions to catch vehicle class boilerplate:
+        "DRIVE", "FOLLOWING", "CLASS", "THROUGHOUT", "COV", "LMV", "MCWG", "PIN"
     )
 
     private val BLOCKLIST = listOf("SAMPLE", "SPECIMEN", "VOID", "DUMMY", "LENS", "SHARE", "STOCK")
@@ -194,6 +204,7 @@ object IdDataExtractor {
         return null
     }
 
+
     fun getDocumentType(fullText: String): IdType? {
         val upper = fullText.uppercase()
         return when {
@@ -201,10 +212,62 @@ object IdDataExtractor {
             upper.contains("PASSPORT") || upper.contains("REPUBLIC OF INDIA") || fullText.contains("P<") -> IdType.PASSPORT
             extractAndSanitizePan(fullText) != null -> IdType.PAN
             upper.contains("MALE") || upper.contains("FEMALE") || AADHAAR_PATTERN.matcher(upper).find() -> IdType.AADHAAR
-            upper.contains("DRIVING") && DL_PATTERN.matcher(upper.replace(" ", "")).find() -> IdType.DRIVING_LICENSE
+            upper.contains("DRIVING") || upper.contains("LICENCE") || extractAndSanitizeDl(fullText) != null -> IdType.DRIVING_LICENSE
             else -> null
         }
     }
+
+    /**
+     * Extracts and strictly formats a DL number into SSRRYYYYNNNNNNN
+     */
+    private fun extractAndSanitizeDl(fullText: String): String? {
+        val cleanText = fullText.uppercase().replace("[\\s-/]".toRegex(), "")
+        val matcher = DL_PATTERN.matcher(cleanText)
+
+        if (matcher.find()) {
+            val raw = matcher.group()
+
+            // Fix OCR issues: O->0, I->1, S->5 in the numeric portions
+            val stateCode = raw.substring(0, 2)
+            val remainder = raw.substring(2)
+                .replace("O", "0")
+                .replace("I", "1")
+                .replace("S", "5")
+                .replace("Z", "2")
+
+            val corrected = stateCode + remainder
+
+            if (STATE_CODES.contains(stateCode)) {
+                return if (corrected.length >= 15) corrected.substring(0, 15) else corrected
+            }
+        }
+        return null
+    }
+
+    /**
+     * Normalizes OCR date noise (e.g. 15.02.1998 -> 15-02-1998)
+     */
+    private fun getSmartDate(text: String): String? {
+        val normalized = text.replace("[.\\s,/]+".toRegex(), "-")
+        val matcher = DATE_PATTERN.matcher(normalized)
+
+        if (matcher.find()) {
+            val dateStr = matcher.group()
+            return try {
+                val parts = dateStr.split("-")
+                val day = parts[0].toInt()
+                val month = parts[1].toInt()
+                val year = parts[2].toInt()
+
+                // Logical check to ensure it's a real date and not random numbers
+                if (month in 1..12 && day in 1..31 && year > 1920) dateStr else null
+            } catch (e: Exception) { null }
+        }
+        return null
+    }
+
+
+
 
     private fun findNameBelowHeader(lines: List<Text.Line>): String? {
         // Find the line index containing "INCOME" or "TAX"
@@ -381,43 +444,91 @@ object IdDataExtractor {
         val allLines = text.textBlocks.flatMap { it.lines }
         val rawLinesStrings = allLines.map { it.text }
 
-        // 1. Extract ID
-        val id = normalizeId(findPattern(rawLinesStrings, DL_PATTERN) ?: "")
+        // 1. Extract & Sanitize ID
+        val id = extractAndSanitizeDl(text.text) ?: ""
 
-        // 2. Extract DOB
-        val dobFiltered = rawLinesStrings.filter { it.contains("DOB", true) || it.contains("Birth", true) || it.trim().contains("DOB:", true)  }
-        println("dobFiltered : $dobFiltered")
-        val dob = findPattern(dobFiltered, DATE_PATTERN)
+        // 2. Extract Dates (Using Smart Parser to handle dots and commas)
+        var dob: String? = null
+        var expiry: String? = null
 
-        // 3. Extract Name
-        // Attempt A: Explicit Label "Name"
-        var name = rawLinesStrings.firstOrNull { it.contains("Name", true) }
-            ?.replace("Name", "", true)
-            ?.replace(":", "")
-            ?.replace(".", "")
-            ?.trim()
+        allLines.forEach { line ->
+            val txt = line.text.uppercase()
+            val foundDate = getSmartDate(txt)
 
-        // Attempt B: Spatial Context (Below DL Number, Above S/o or DOB)
-        if (name.isNullOrEmpty() || name.length < 3) {
-            name = findDlNameByContext(allLines, id)
+            if (foundDate != null) {
+                // Determine if this date is a DOB or Expiry based on context keywords in the same line
+                when {
+                    txt.contains("DOB") || txt.contains("BIRTH") -> dob = foundDate
+                    txt.contains("VALID") || txt.contains("UNTIL") || txt.contains("EXP") || txt.contains("NT") -> expiry = foundDate
+                }
+            }
         }
 
-        // Final Clean: Remove any accidentally captured digits or symbols
+        // Fallback for DOB if context keyword was missed by OCR
+        if (dob == null) {
+            val dobFiltered = rawLinesStrings.filter { it.contains("DOB", true) || it.contains("Birth", true) }
+            dob = findPattern(dobFiltered, DATE_PATTERN)
+        }
+
+        // 3. Extract Name
+        var name: String? = null
+
+        // Attempt A: The "Bottom-Up" Anchor (Most reliable for MH, GJ, and others)
+        // Find the line that denotes the Father/Spouse. The Name is usually exactly 1 line above it.
+        val relationIndex = allLines.indexOfFirst {
+            val upper = it.text.uppercase()
+            upper.contains("S/O") || upper.contains("W/O") || upper.contains("D/O") || upper.contains("S/DW")
+        }
+
+        if (relationIndex > 0) {
+            // Look at the line immediately preceding the relation line
+            val candidate = allLines[relationIndex - 1].text.replace(":", "").trim()
+            if (isValidDlNameCandidate(candidate)) {
+                name = candidate
+            }
+        }
+
+        // Attempt B: Explicit Label "Name" (If Attempt A failed)
+        if (name.isNullOrEmpty()) {
+            val nameLabelIndex = allLines.indexOfFirst { it.text.contains("Name", true) && !it.text.contains("Father", true) }
+            if (nameLabelIndex != -1) {
+                val nameLineText = allLines[nameLabelIndex].text
+                val sameLine = nameLineText.replace("Name", "", true).replace(":", "").replace(".", "").trim()
+
+                if (sameLine.length > 2 && isValidDlNameCandidate(sameLine)) {
+                    name = sameLine
+                } else {
+                    // Look 1-2 lines below if "Name" was just a header line
+                    for (i in 1..2) {
+                        if (nameLabelIndex + i >= allLines.size) break
+                        val candidate = allLines[nameLabelIndex + i].text.replace(":", "").trim()
+                        if (isValidDlNameCandidate(candidate)) {
+                            name = candidate
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
+        // Attempt C: Spatial Context (Below DL Number)
+        if (name.isNullOrEmpty() || name.length < 3) {
+            name = findDlNameByContext(allLines, id)?.replace(":", "")?.trim()
+        }
+
+        // Attempt D: Top of Document (Common in Northern States)
+        if (name.isNullOrEmpty() || name.length < 3) {
+            name = allLines.map { it.text.replace(":", "").trim() }
+                .filter { isValidDlNameCandidate(it) }
+                .firstOrNull() // Grabs the first valid non-junk string
+        }
+
+        // Final Clean
         if (name != null && name.any { it.isDigit() }) {
-            // If name contains digits, it's likely garbage. Reset to null or clean it.
             name = name.filter { !it.isDigit() }.trim()
         }
 
-        // 4. Extract Expiry & Validate
-        // Look for keywords like "Valid", "Expiry", "Until", or "NT" (common in Indian DLs)
-        val expiryLine = rawLinesStrings.find {
-            it.contains("Valid", true) || it.contains("Expiry", true) || it.contains("Until", true) || it.contains("NT", true)
-        }
-        val expiryDateStr = expiryLine?.let { findPattern(listOf(it), DATE_PATTERN) }
-        val isExpired = checkIfExpired(expiryDateStr)
-
-        // 5. Extract Address (Spatial Search)
-        // Address is usually a block of text below a line containing "Address"
+        // 4. Extract Address
         val address = extractAddress(allLines)
 
         return ExtractedDocument.DrivingLicense(
@@ -425,7 +536,7 @@ object IdDataExtractor {
             name = name,
             dob = dob,
             address = address,
-            isExpired = isExpired
+            isExpired = checkIfExpired(expiry)
         )
     }
 
@@ -587,14 +698,14 @@ object IdDataExtractor {
 
     private fun isValidDlNameCandidate(text: String): Boolean {
         val upper = text.uppercase()
-
         return text.length > 3 &&
-                !text.any { it.isDigit() } &&                  // No numbers in names
-                !upper.contains("S/O") &&                      // Not Father's name line
-                !upper.contains("W/O") &&                      // Not Husband's name line
-                !upper.contains("D/O") &&                      // Not Daughter's name line
-                !upper.contains("ADDRESS") &&                  // Not Address
-                !DL_JUNK_WORDS.any { upper.contains(it) }      // Not a header like "Transport Dept"
+                !text.any { it.isDigit() } &&
+                !upper.startsWith("S/O") && !upper.contains(" S/O ") &&
+                !upper.startsWith("W/O") && !upper.contains(" W/O ") &&
+                !upper.startsWith("D/O") && !upper.contains(" D/O ") &&
+                !upper.contains("S/DW") && // Added specifically for MH formats
+                !upper.contains("ADDRESS") &&
+                !DL_JUNK_WORDS.any { upper.contains(it) }
     }
 
     private fun extractAddress(allLines: List<Text.Line>): String? {

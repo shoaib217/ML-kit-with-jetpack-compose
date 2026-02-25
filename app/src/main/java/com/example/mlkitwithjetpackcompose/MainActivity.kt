@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -20,9 +21,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -55,6 +61,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
@@ -106,6 +114,7 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         if (OpenCVLoader.initLocal()) {
@@ -186,16 +195,20 @@ class MainActivity : ComponentActivity() {
                     showExitDialog = true
                 }
 
-                Scaffold(topBar = {
-                    TopAppBar(title = { Text(text = "ML Kit Demo") })
-                }, containerColor = MaterialTheme.colorScheme.background) {
+                Scaffold(
+                    topBar = {
+                        TopAppBar(title = { Text(text = "ML Kit Demo") })
+                    }, 
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentWindowInsets = WindowInsets.safeDrawing // Handle edge-to-edge for Scaffold
+                ) { innerPadding ->
                     val listOfExtractedDocumentData = remember { mutableStateListOf<ExtractedDocumentData>() }
                     NavHost(
                         navController = navController,
                         startDestination = MAIN_SCREEN,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(it)
+                            .padding(innerPadding)
                     ) {
                         composable(MAIN_SCREEN) {
                             MainScreen(navController,listOfExtractedDocumentData)
@@ -522,31 +535,22 @@ private fun buildDocumentDisplayString(doc: ExtractedDocument): String {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     navController: NavHostController,
     listOfExtractedDocumentData: SnapshotStateList<ExtractedDocumentData>,
 ) {
+    // Get the system insets to handle edge-to-edge properly in lists
+    val layoutDirection = LocalLayoutDirection.current
+    val safeDrawingPadding = WindowInsets.safeDrawing.asPaddingValues()
+
     Column(
         verticalArrangement = Arrangement.SpaceEvenly,
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxSize()
     ) {
         val context = LocalContext.current
-        /*if (listOfExtractedDocumentData.size == 2) {
-            FilledTonalButton(onClick = {
-                DocumentMatcher.calculateTotalMatch(listOfExtractedDocumentData[0],
-                    BitmapFactory.decodeFile(listOfExtractedDocumentData[0].imageUri),
-                    listOfExtractedDocumentData[1],
-                    BitmapFactory.decodeFile(listOfExtractedDocumentData[1].imageUri),
-                    context,
-                    onComplete = {
-                        Log.d("TAG", "MainScreen: $it")
-                    })
-            }) {
-                Text(text = "Compare Document")
-            }
-        }*/
-
 
         // Track selected items by index
         var selectedIndices by remember { mutableStateOf(setOf<Int>()) }
@@ -560,13 +564,18 @@ fun MainScreen(
             Text(
                 text = "Verified Documents (${selectedIndices.size}/2 selected)",
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
             )
 
             // 1. List View of Extracted Documents
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(
+                    start = 16.dp + safeDrawingPadding.calculateStartPadding(layoutDirection),
+                    end = 16.dp + safeDrawingPadding.calculateEndPadding(layoutDirection),
+                    top = 16.dp,
+                    bottom = 16.dp + safeDrawingPadding.calculateBottomPadding()
+                ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 itemsIndexed(listOfExtractedDocumentData) { index, doc ->
@@ -686,19 +695,6 @@ fun MainScreen(
                 }
             )
         }
-
-       /* FilledTonalButton(onClick = { navController.navigate(MainActivity.TEXT_RECOGNITION_SCREEN) }) {
-            Text(text = "Go to Text Recognition Screen")
-        }
-        FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_SCANNER_SCREEN) }) {
-            Text(text = "Go to Document Scanner Screen")
-        }
-        FilledTonalButton(onClick = { navController.navigate(MainActivity.DOCUMENT_DETECTION) }) {
-            Text(text = "Go to Document verification")
-        }
-
-        */
-
     }
 }
 
@@ -713,5 +709,32 @@ private fun buildMatchResultString(doc: DocumentMatcher.MatchResult): String {
         /*append("Final Score: ${doc.finalScore}\n")
         append("Is Verified: ${if (doc.isVerified) "Yes" else "No"}\n")*/
 
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun MainScreenPreview() {
+    MLkitWithJetpackComposeTheme {
+        val navController = rememberNavController()
+        val sampleList = remember {
+            mutableStateListOf(
+                ExtractedDocumentData(
+                    documentType = IdType.AADHAAR,
+                    name = "John Doe",
+                    dob = "01/01/1990",
+                    address = "123456",
+                    imageUri = null
+                ),
+                ExtractedDocumentData(
+                    documentType = IdType.PAN,
+                    name = "JOHN DOE",
+                    dob = "01/01/1990",
+                    address = null,
+                    imageUri = null
+                )
+            )
+        }
+        MainScreen(navController = navController, listOfExtractedDocumentData = sampleList)
     }
 }
