@@ -21,8 +21,8 @@ object IdDataExtractor {
     // Valid State Codes to prevent false positives from random alphanumeric OCR noise
     private val STATE_CODES = setOf(
         "AN", "AP", "AR", "AS", "BR", "CH", "DN", "DD", "DL", "GA", "GJ", "HR",
-        "HP", "JK", "KA", "KL", "LD", "MP", "MH", "MN", "ML", "MZ", "NL", "OR",
-        "PY", "PN", "RJ", "SK", "TN", "TR", "UP", "WB", "TS", "UK", "UA", "CG", "JH"
+        "HP", "JK", "KA", "KL", "LD", "MP", "MH", "MN", "ML", "MZ", "NL", "OR", "OD",
+        "PY", "PB", "RJ", "SK", "TN", "TR", "UP", "WB", "TS", "TG", "UK", "UA", "CG", "JH", "LA"
     )
 
     private val IGNORE_HEADERS = listOf(
